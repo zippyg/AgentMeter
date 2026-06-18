@@ -1,0 +1,71 @@
+import Foundation
+import Testing
+@testable import AgentMeter
+
+struct UsageStoreTimeoutTests {
+    private final class ProbeGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var released = false
+
+        func wait() async {
+            await withCheckedContinuation { continuation in
+                let shouldResume = self.lock.withLock {
+                    guard !self.released else { return true }
+                    self.continuation = continuation
+                    return false
+                }
+                if shouldResume {
+                    continuation.resume()
+                }
+            }
+        }
+
+        func release() {
+            let continuation = self.lock.withLock {
+                self.released = true
+                let continuation = self.continuation
+                self.continuation = nil
+                return continuation
+            }
+            continuation?.resume()
+        }
+
+        var isReleased: Bool {
+            self.lock.withLock { self.released }
+        }
+    }
+
+    @Test
+    func `timeout does not wait for a cancellation ignoring probe`() async {
+        let gate = ProbeGate()
+        let releaseTask = Task {
+            try? await Task.sleep(for: .seconds(10))
+            gate.release()
+        }
+        defer {
+            releaseTask.cancel()
+            gate.release()
+        }
+
+        let startedAt = ContinuousClock.now
+        let result = await UsageStore.runWithTimeout(seconds: 0.03) {
+            await gate.wait()
+            return "late result"
+        }
+        let elapsed = startedAt.duration(to: .now)
+
+        #expect(result == "Probe timed out after 0s")
+        #expect(gate.isReleased == false)
+        #expect(elapsed < .seconds(5))
+    }
+
+    @Test
+    func `completed probe wins timeout race`() async {
+        let result = await UsageStore.runWithTimeout(seconds: 1) {
+            "probe result"
+        }
+
+        #expect(result == "probe result")
+    }
+}

@@ -1,0 +1,90 @@
+import CodexBarCore
+import Foundation
+
+@MainActor
+extension UsageStore {
+    /// Returns the enabled provider with the highest usage percentage (closest to rate limit).
+    /// Excludes providers that are fully rate-limited.
+    func providerWithHighestUsage() -> (provider: UsageProvider, usedPercent: Double)? {
+        var highest: (provider: UsageProvider, usedPercent: Double)?
+        for provider in self.enabledProviders() {
+            guard let snapshot = self.snapshots[provider] else { continue }
+            guard let window = self.menuBarMetricWindowForHighestUsage(provider: provider, snapshot: snapshot) else {
+                continue
+            }
+            let percent = window.usedPercent
+            guard !self.shouldExcludeFromHighestUsage(
+                provider: provider,
+                snapshot: snapshot,
+                metricPercent: percent)
+            else {
+                continue
+            }
+            if highest == nil || percent > highest!.usedPercent {
+                highest = (provider, percent)
+            }
+        }
+        return highest
+    }
+
+    private func menuBarMetricWindowForHighestUsage(provider: UsageProvider, snapshot: UsageSnapshot) -> RateWindow? {
+        MenuBarMetricWindowResolver.rateWindow(
+            preference: self.settings.menuBarMetricPreference(for: provider, snapshot: snapshot),
+            provider: provider,
+            snapshot: snapshot,
+            supportsAverage: self.settings.menuBarMetricSupportsAverage(for: provider))
+    }
+
+    private func shouldExcludeFromHighestUsage(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot,
+        metricPercent: Double)
+        -> Bool
+    {
+        let effectivePreference = self.settings.menuBarMetricPreference(for: provider, snapshot: snapshot)
+        guard metricPercent >= 100 else { return false }
+        if provider == .copilot,
+           effectivePreference == .automatic,
+           let primary = snapshot.primary,
+           let secondary = snapshot.secondary
+        {
+            // In automatic mode Copilot can have one depleted lane while another still has quota.
+            return primary.usedPercent >= 100 && secondary.usedPercent >= 100
+        }
+        if provider == .cursor || provider == .antigravity,
+           effectivePreference == .automatic
+        {
+            if provider == .antigravity,
+               let percents = Self.antigravityQuotaSummaryUsedPercents(snapshot: snapshot),
+               !percents.isEmpty
+            {
+                return percents.allSatisfy { $0 >= 100 }
+            }
+            let percents = [
+                snapshot.primary?.usedPercent,
+                snapshot.secondary?.usedPercent,
+                snapshot.tertiary?.usedPercent,
+            ].compactMap(\.self) + (provider == .antigravity
+                ? Self.antigravityLegacyExtraUsedPercents(snapshot: snapshot)
+                : [])
+            guard !percents.isEmpty else { return true }
+            return percents.allSatisfy { $0 >= 100 }
+        }
+
+        return true
+    }
+
+    private nonisolated static let antigravityQuotaSummaryWindowIDPrefix = "antigravity-quota-summary-"
+
+    private nonisolated static func antigravityQuotaSummaryUsedPercents(snapshot: UsageSnapshot) -> [Double]? {
+        snapshot.extraRateWindows?
+            .filter { $0.usageKnown && $0.id.hasPrefix(Self.antigravityQuotaSummaryWindowIDPrefix) }
+            .map(\.window.usedPercent)
+    }
+
+    private nonisolated static func antigravityLegacyExtraUsedPercents(snapshot: UsageSnapshot) -> [Double] {
+        snapshot.extraRateWindows?
+            .filter { $0.usageKnown && !$0.id.hasPrefix(Self.antigravityQuotaSummaryWindowIDPrefix) }
+            .map(\.window.usedPercent) ?? []
+    }
+}

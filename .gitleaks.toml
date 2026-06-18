@@ -1,0 +1,22 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "AgentMeter false positives and non-publishable local build artifacts"
+regexTarget = "line"
+paths = [
+  '''(^|/)\.agentmeter-artifacts/''',
+  '''(^|/)\.build/''',
+  '''(^|/)\.build-agentmeter-[^/]+/''',
+  '''(^|/)\.swiftpm/''',
+  '''(^|/)DerivedData[^/]*(/|$)''',
+  '''(^|/).*\.env$''',
+  '''(^|/).*\.xcresult/''',
+  '''(^|/)Tests/CodexBarTests/Fixtures/codex-historical-usage-real-legacy\.jsonl$''',
+  '''(^|/)Tests/CodexBarTests/Fixtures/codex-plan-utilization-real-migration\.json$''',
+]
+regexes = [
+  '''defaultOAuthClientID\s*=\s*".*"''',
+  '''Anthropic API.*claude-opus-4-5-20251101''',
+  '''Claude Admin API 30 day spend trend''',
+]

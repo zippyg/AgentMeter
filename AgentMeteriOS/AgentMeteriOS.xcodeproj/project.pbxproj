@@ -1,0 +1,695 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		08E3367EB3249A6881D19A2F /* AgentMeterDailyUsageChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE63405BEB2CA502E148DC5 /* AgentMeterDailyUsageChart.swift */; };
+		0B2AA46A30021734052ED2E8 /* AgentMeterActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE6B38C48FF9AC9F442B415 /* AgentMeterActivityAttributes.swift */; };
+		0D1D70ACEE170F1EA4864F23 /* AgentMeterProviderAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA1C1AA40355FBC5C41C747 /* AgentMeterProviderAssets.swift */; };
+		0DA2CF15B74B8A0F55599E8C /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EB74B9B5D5D33EB4BE2DCB41 /* SwiftUI.framework */; };
+		1417E9CA0118AF5CC7529E1D /* AgentMeterWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91DC3FCE531D3758369FBB6 /* AgentMeterWidgetBundle.swift */; };
+		214C63E158B4C06FB93D2F1F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D425AEDD56B35CE99A3F4D99 /* Assets.xcassets */; };
+		33F5C55F03441B2CD0A1893D /* AgentMeterFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3AB2E86274EA6641248D41 /* AgentMeterFormat.swift */; };
+		381C4A8AFF9515DA35CC90C7 /* AgentMeterDailyUsageChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE63405BEB2CA502E148DC5 /* AgentMeterDailyUsageChart.swift */; };
+		3BB62D97FD4A5BB68830F654 /* AgentMeterPhoneSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5074FAF105C34A69D10BFC19 /* AgentMeterPhoneSnapshot.swift */; };
+		4058AC5CE2204A509042A9E5 /* AgentMeterPhoneSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5074FAF105C34A69D10BFC19 /* AgentMeterPhoneSnapshot.swift */; };
+		44E76EAF2C3797CFAD3B4C66 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D425AEDD56B35CE99A3F4D99 /* Assets.xcassets */; };
+		483BA5115219F05E1242C542 /* AgentMeterProviderAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA1C1AA40355FBC5C41C747 /* AgentMeterProviderAssets.swift */; };
+		4C5A1636326882DB3EFC19FE /* AgentMeterPhoneSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A97ABFDCDCE5BEA013B7036 /* AgentMeterPhoneSnapshotStore.swift */; };
+		4D8281B7C34F5255A0A6C364 /* AgentMeterFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3AB2E86274EA6641248D41 /* AgentMeterFormat.swift */; };
+		63C624067E652F5B811E4F91 /* AgentMeterSnapshotModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5401A380E7D4BF26EA5C60FD /* AgentMeterSnapshotModel.swift */; };
+		640091CEC8075D9D05C95249 /* AgentMeterPhoneSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A97ABFDCDCE5BEA013B7036 /* AgentMeterPhoneSnapshotStore.swift */; };
+		6630CAE090750BB6BD9891DE /* AgentMeterPhoneInsights.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B9C3281226014B8DE2D38D /* AgentMeterPhoneInsights.swift */; };
+		6743E160702EC1FA116AC100 /* AgentMeterSampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE4CD2CA5D37CEDA5CF9A29 /* AgentMeterSampleData.swift */; };
+		6914EBB380C91CE8CBD3430E /* AgentMeteriOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD71A3363FB8FC3799E7323C /* AgentMeteriOSApp.swift */; };
+		6CAF9543EDE47F5B0E816A6B /* AgentMeterBridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 128B653A3D18F2C5ACF5619D /* AgentMeterBridgeClient.swift */; };
+		7091B14645878F8EA6ED7D2D /* AgentMeterSampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE4CD2CA5D37CEDA5CF9A29 /* AgentMeterSampleData.swift */; };
+		713CB07E12A4CCDA71424314 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FF35169C8B9A478A2C559548 /* XCTest.framework */; };
+		7CC99DE56C475D1ACDCBBE7A /* AgentMeterDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BE53E310E06F970304174DE /* AgentMeterDashboardView.swift */; };
+		8095C85471BEA5C30A818C4F /* AgentMeterPhoneSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5074FAF105C34A69D10BFC19 /* AgentMeterPhoneSnapshot.swift */; };
+		81CA983A8C90D7644841D05D /* AgentMeterProviderAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA1C1AA40355FBC5C41C747 /* AgentMeterProviderAssets.swift */; };
+		89E6FE21DAB0B891D0596B60 /* AgentMeterLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D980CC6B8948C5DF2A87C9 /* AgentMeterLiveActivity.swift */; };
+		8AE058E514DD09B4D69B4AF4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D425AEDD56B35CE99A3F4D99 /* Assets.xcassets */; };
+		8DEBF4E03EC23095474BD481 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8A379CB81F4A297336A5BB8E /* WidgetKit.framework */; };
+		8F7F4F1A60222C6A54219A6A /* AgentMeterPhoneSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A97ABFDCDCE5BEA013B7036 /* AgentMeterPhoneSnapshotStore.swift */; };
+		97D85ADE9C850DE62ABB0DCF /* AgentMeterActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE6B38C48FF9AC9F442B415 /* AgentMeterActivityAttributes.swift */; };
+		A3EF06DB8314E0EE2B0F2914 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B95F18CB50693EFA09080BEF /* ActivityKit.framework */; };
+		A7B8C9D0E1F2031425364758 /* AgentMeterBridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 128B653A3D18F2C5ACF5619D /* AgentMeterBridgeClient.swift */; };
+		B51628ABE32A43C1105B062E /* AgentMeterPhoneInsights.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B9C3281226014B8DE2D38D /* AgentMeterPhoneInsights.swift */; };
+		B8C028AF458227A6FB334674 /* AgentMeterWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99C1026BA3214C3733DBAFFC /* AgentMeterWidget.swift */; };
+		C479960A026EBCDA3F5877F7 /* AgentMeterSampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE4CD2CA5D37CEDA5CF9A29 /* AgentMeterSampleData.swift */; };
+		C7BD920AF3C176B060C9E990 /* AgentMeterPhoneSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07B7E9EC47FC9A9B3D9954DA /* AgentMeterPhoneSnapshotTests.swift */; };
+		CAAB0050430776A3DAC4FB07 /* AgentMeterActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE6B38C48FF9AC9F442B415 /* AgentMeterActivityAttributes.swift */; };
+		D7E292FD99DAD02F6EC49C43 /* AgentMeterPhoneInsights.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B9C3281226014B8DE2D38D /* AgentMeterPhoneInsights.swift */; };
+		E3E9D5A79A94E63B2E0E86FB /* AgentMeterDailyUsageChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE63405BEB2CA502E148DC5 /* AgentMeterDailyUsageChart.swift */; };
+		ECB2F996D3237AC89E4BCB8C /* AgentMeterWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B9326F44EA57B3613ACFD5E5 /* AgentMeterWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F88BDFA0806DB4E1554168F1 /* AgentMeterFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3AB2E86274EA6641248D41 /* AgentMeterFormat.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		E31C595113840FF90FB804C3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 53DC529E9EAD33B43CF72C44 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 50697245D6C4ACADE0076BA6;
+			remoteInfo = AgentMeterWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0A66F90D215EC4FF53EF86AA /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				ECB2F996D3237AC89E4BCB8C /* AgentMeterWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		07B7E9EC47FC9A9B3D9954DA /* AgentMeterPhoneSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterPhoneSnapshotTests.swift; sourceTree = "<group>"; };
+		0BE53E310E06F970304174DE /* AgentMeterDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterDashboardView.swift; sourceTree = "<group>"; };
+		128B653A3D18F2C5ACF5619D /* AgentMeterBridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterBridgeClient.swift; sourceTree = "<group>"; };
+		1DE63405BEB2CA502E148DC5 /* AgentMeterDailyUsageChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterDailyUsageChart.swift; sourceTree = "<group>"; };
+		2C6E677B09F12960E1165ED6 /* AgentMeteriOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentMeteriOS.entitlements; sourceTree = "<group>"; };
+		2DA16D3C036F146E33E56B4A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5074FAF105C34A69D10BFC19 /* AgentMeterPhoneSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterPhoneSnapshot.swift; sourceTree = "<group>"; };
+		5401A380E7D4BF26EA5C60FD /* AgentMeterSnapshotModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterSnapshotModel.swift; sourceTree = "<group>"; };
+		6A3AB2E86274EA6641248D41 /* AgentMeterFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterFormat.swift; sourceTree = "<group>"; };
+		6D42F3CB517563BC144741FF /* AgentMeteriOSTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AgentMeteriOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		70C4B7EFFF0188E9A0CD8EEB /* AgentMeteriOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AgentMeteriOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7CE4CD2CA5D37CEDA5CF9A29 /* AgentMeterSampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterSampleData.swift; sourceTree = "<group>"; };
+		8A379CB81F4A297336A5BB8E /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		8E147012246D3DA48EE4D940 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		99C1026BA3214C3733DBAFFC /* AgentMeterWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterWidget.swift; sourceTree = "<group>"; };
+		9A97ABFDCDCE5BEA013B7036 /* AgentMeterPhoneSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterPhoneSnapshotStore.swift; sourceTree = "<group>"; };
+		B9326F44EA57B3613ACFD5E5 /* AgentMeterWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AgentMeterWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B95F18CB50693EFA09080BEF /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
+		BB8BB0D21B41AD79C8C2FB0F /* AgentMeterWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentMeterWidget.entitlements; sourceTree = "<group>"; };
+		C3D980CC6B8948C5DF2A87C9 /* AgentMeterLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterLiveActivity.swift; sourceTree = "<group>"; };
+		CD286F2E159E0633180C6213 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		CD71A3363FB8FC3799E7323C /* AgentMeteriOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeteriOSApp.swift; sourceTree = "<group>"; };
+		D425AEDD56B35CE99A3F4D99 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E0B9C3281226014B8DE2D38D /* AgentMeterPhoneInsights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterPhoneInsights.swift; sourceTree = "<group>"; };
+		EB74B9B5D5D33EB4BE2DCB41 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		EBE6B38C48FF9AC9F442B415 /* AgentMeterActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterActivityAttributes.swift; sourceTree = "<group>"; };
+		F91DC3FCE531D3758369FBB6 /* AgentMeterWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterWidgetBundle.swift; sourceTree = "<group>"; };
+		FDA1C1AA40355FBC5C41C747 /* AgentMeterProviderAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMeterProviderAssets.swift; sourceTree = "<group>"; };
+		FF35169C8B9A478A2C559548 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1030213735D3BE5F9EBB15B4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				713CB07E12A4CCDA71424314 /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3D350C575AF22D9F80F4C75 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A3EF06DB8314E0EE2B0F2914 /* ActivityKit.framework in Frameworks */,
+				0DA2CF15B74B8A0F55599E8C /* SwiftUI.framework in Frameworks */,
+				8DEBF4E03EC23095474BD481 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		04653F9F3237DB0A88D46C84 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				EBE6B38C48FF9AC9F442B415 /* AgentMeterActivityAttributes.swift */,
+				1DE63405BEB2CA502E148DC5 /* AgentMeterDailyUsageChart.swift */,
+				6A3AB2E86274EA6641248D41 /* AgentMeterFormat.swift */,
+				E0B9C3281226014B8DE2D38D /* AgentMeterPhoneInsights.swift */,
+				5074FAF105C34A69D10BFC19 /* AgentMeterPhoneSnapshot.swift */,
+				9A97ABFDCDCE5BEA013B7036 /* AgentMeterPhoneSnapshotStore.swift */,
+				FDA1C1AA40355FBC5C41C747 /* AgentMeterProviderAssets.swift */,
+				7CE4CD2CA5D37CEDA5CF9A29 /* AgentMeterSampleData.swift */,
+				D425AEDD56B35CE99A3F4D99 /* Assets.xcassets */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		13454958D02276BDCB1E1CB0 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				07B7E9EC47FC9A9B3D9954DA /* AgentMeterPhoneSnapshotTests.swift */,
+				CD286F2E159E0633180C6213 /* Info.plist */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		27598B6F4028F1899B7ECAA5 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				B95F18CB50693EFA09080BEF /* ActivityKit.framework */,
+				EB74B9B5D5D33EB4BE2DCB41 /* SwiftUI.framework */,
+				8A379CB81F4A297336A5BB8E /* WidgetKit.framework */,
+				FF35169C8B9A478A2C559548 /* XCTest.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		7E6ADB030964525B48FA8078 /* AgentMeteriOS */ = {
+			isa = PBXGroup;
+			children = (
+				128B653A3D18F2C5ACF5619D /* AgentMeterBridgeClient.swift */,
+				0BE53E310E06F970304174DE /* AgentMeterDashboardView.swift */,
+				2C6E677B09F12960E1165ED6 /* AgentMeteriOS.entitlements */,
+				CD71A3363FB8FC3799E7323C /* AgentMeteriOSApp.swift */,
+				5401A380E7D4BF26EA5C60FD /* AgentMeterSnapshotModel.swift */,
+				2DA16D3C036F146E33E56B4A /* Info.plist */,
+			);
+			path = AgentMeteriOS;
+			sourceTree = "<group>";
+		};
+		B58E911C36C3C4B0F701E908 = {
+			isa = PBXGroup;
+			children = (
+				7E6ADB030964525B48FA8078 /* AgentMeteriOS */,
+				D829E5D1F62B96D717E5C765 /* AgentMeterWidget */,
+				04653F9F3237DB0A88D46C84 /* Shared */,
+				13454958D02276BDCB1E1CB0 /* Tests */,
+				27598B6F4028F1899B7ECAA5 /* Frameworks */,
+				E93CF4A3C02EEB81A99FAC34 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D829E5D1F62B96D717E5C765 /* AgentMeterWidget */ = {
+			isa = PBXGroup;
+			children = (
+				C3D980CC6B8948C5DF2A87C9 /* AgentMeterLiveActivity.swift */,
+				BB8BB0D21B41AD79C8C2FB0F /* AgentMeterWidget.entitlements */,
+				99C1026BA3214C3733DBAFFC /* AgentMeterWidget.swift */,
+				F91DC3FCE531D3758369FBB6 /* AgentMeterWidgetBundle.swift */,
+				8E147012246D3DA48EE4D940 /* Info.plist */,
+			);
+			path = AgentMeterWidget;
+			sourceTree = "<group>";
+		};
+		E93CF4A3C02EEB81A99FAC34 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				70C4B7EFFF0188E9A0CD8EEB /* AgentMeteriOS.app */,
+				6D42F3CB517563BC144741FF /* AgentMeteriOSTests.xctest */,
+				B9326F44EA57B3613ACFD5E5 /* AgentMeterWidget.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		50697245D6C4ACADE0076BA6 /* AgentMeterWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E6C5459AC0AB712CBCA990C /* Build configuration list for PBXNativeTarget "AgentMeterWidget" */;
+			buildPhases = (
+				130B9CF16CA02E3C523250CF /* Sources */,
+				EF4F5386CB993E54062BD56B /* Resources */,
+				A3D350C575AF22D9F80F4C75 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AgentMeterWidget;
+			packageProductDependencies = (
+			);
+			productName = AgentMeterWidget;
+			productReference = B9326F44EA57B3613ACFD5E5 /* AgentMeterWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		785830F01CEB9C0D391A1F9A /* AgentMeteriOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D3C3B63D9DBEED6326B39393 /* Build configuration list for PBXNativeTarget "AgentMeteriOSTests" */;
+			buildPhases = (
+				659DA0FD38923CC349FCB8F1 /* Sources */,
+				E052396C48CD9F93B80D77A1 /* Resources */,
+				1030213735D3BE5F9EBB15B4 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AgentMeteriOSTests;
+			packageProductDependencies = (
+			);
+			productName = AgentMeteriOSTests;
+			productReference = 6D42F3CB517563BC144741FF /* AgentMeteriOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		A7CFA357A5254BAAA8F36B2D /* AgentMeteriOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C23308E9D9ECF895D0E6E3A7 /* Build configuration list for PBXNativeTarget "AgentMeteriOS" */;
+			buildPhases = (
+				65F122337E0647CE95617C3F /* Sources */,
+				0FAA7C8BFA7529CE5FEC30B1 /* Resources */,
+				0A66F90D215EC4FF53EF86AA /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				32AC3DD47D90E185C56FE3D8 /* PBXTargetDependency */,
+			);
+			name = AgentMeteriOS;
+			packageProductDependencies = (
+			);
+			productName = AgentMeteriOS;
+			productReference = 70C4B7EFFF0188E9A0CD8EEB /* AgentMeteriOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		53DC529E9EAD33B43CF72C44 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					50697245D6C4ACADE0076BA6 = {
+						DevelopmentTeam = 6663RG4DA4;
+						ProvisioningStyle = Automatic;
+					};
+					A7CFA357A5254BAAA8F36B2D = {
+						DevelopmentTeam = 6663RG4DA4;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 963EEA3FB1D385EE336386EB /* Build configuration list for PBXProject "AgentMeteriOS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = B58E911C36C3C4B0F701E908;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = E93CF4A3C02EEB81A99FAC34 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				50697245D6C4ACADE0076BA6 /* AgentMeterWidget */,
+				A7CFA357A5254BAAA8F36B2D /* AgentMeteriOS */,
+				785830F01CEB9C0D391A1F9A /* AgentMeteriOSTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0FAA7C8BFA7529CE5FEC30B1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				44E76EAF2C3797CFAD3B4C66 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E052396C48CD9F93B80D77A1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				214C63E158B4C06FB93D2F1F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EF4F5386CB993E54062BD56B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8AE058E514DD09B4D69B4AF4 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		130B9CF16CA02E3C523250CF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				97D85ADE9C850DE62ABB0DCF /* AgentMeterActivityAttributes.swift in Sources */,
+				08E3367EB3249A6881D19A2F /* AgentMeterDailyUsageChart.swift in Sources */,
+				4D8281B7C34F5255A0A6C364 /* AgentMeterFormat.swift in Sources */,
+				89E6FE21DAB0B891D0596B60 /* AgentMeterLiveActivity.swift in Sources */,
+				D7E292FD99DAD02F6EC49C43 /* AgentMeterPhoneInsights.swift in Sources */,
+				4058AC5CE2204A509042A9E5 /* AgentMeterPhoneSnapshot.swift in Sources */,
+				640091CEC8075D9D05C95249 /* AgentMeterPhoneSnapshotStore.swift in Sources */,
+				483BA5115219F05E1242C542 /* AgentMeterProviderAssets.swift in Sources */,
+				C479960A026EBCDA3F5877F7 /* AgentMeterSampleData.swift in Sources */,
+				B8C028AF458227A6FB334674 /* AgentMeterWidget.swift in Sources */,
+				1417E9CA0118AF5CC7529E1D /* AgentMeterWidgetBundle.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		659DA0FD38923CC349FCB8F1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0B2AA46A30021734052ED2E8 /* AgentMeterActivityAttributes.swift in Sources */,
+				A7B8C9D0E1F2031425364758 /* AgentMeterBridgeClient.swift in Sources */,
+				E3E9D5A79A94E63B2E0E86FB /* AgentMeterDailyUsageChart.swift in Sources */,
+				F88BDFA0806DB4E1554168F1 /* AgentMeterFormat.swift in Sources */,
+				6630CAE090750BB6BD9891DE /* AgentMeterPhoneInsights.swift in Sources */,
+				3BB62D97FD4A5BB68830F654 /* AgentMeterPhoneSnapshot.swift in Sources */,
+				4C5A1636326882DB3EFC19FE /* AgentMeterPhoneSnapshotStore.swift in Sources */,
+				C7BD920AF3C176B060C9E990 /* AgentMeterPhoneSnapshotTests.swift in Sources */,
+				0D1D70ACEE170F1EA4864F23 /* AgentMeterProviderAssets.swift in Sources */,
+				6743E160702EC1FA116AC100 /* AgentMeterSampleData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		65F122337E0647CE95617C3F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CAAB0050430776A3DAC4FB07 /* AgentMeterActivityAttributes.swift in Sources */,
+				6CAF9543EDE47F5B0E816A6B /* AgentMeterBridgeClient.swift in Sources */,
+				381C4A8AFF9515DA35CC90C7 /* AgentMeterDailyUsageChart.swift in Sources */,
+				7CC99DE56C475D1ACDCBBE7A /* AgentMeterDashboardView.swift in Sources */,
+				33F5C55F03441B2CD0A1893D /* AgentMeterFormat.swift in Sources */,
+				B51628ABE32A43C1105B062E /* AgentMeterPhoneInsights.swift in Sources */,
+				8095C85471BEA5C30A818C4F /* AgentMeterPhoneSnapshot.swift in Sources */,
+				8F7F4F1A60222C6A54219A6A /* AgentMeterPhoneSnapshotStore.swift in Sources */,
+				81CA983A8C90D7644841D05D /* AgentMeterProviderAssets.swift in Sources */,
+				7091B14645878F8EA6ED7D2D /* AgentMeterSampleData.swift in Sources */,
+				63C624067E652F5B811E4F91 /* AgentMeterSnapshotModel.swift in Sources */,
+				6914EBB380C91CE8CBD3430E /* AgentMeteriOSApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		32AC3DD47D90E185C56FE3D8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 50697245D6C4ACADE0076BA6 /* AgentMeterWidget */;
+			targetProxy = E31C595113840FF90FB804C3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		4C58BC4F60BF4651D5A57C9F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AgentMeteriOS/AgentMeteriOS.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6663RG4DA4;
+				INFOPLIST_FILE = AgentMeteriOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zain.agentmeter.ios.dev;
+				PRODUCT_NAME = AgentMeter;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		7CEE55BA3F9BB991FC24058A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		803B642D46F8AAC4A737CD39 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				INFOPLIST_FILE = Tests/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zain.agentmeter.ios.dev.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9BEF669CC98C4D09C5ED150F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AgentMeterWidget/AgentMeterWidget.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6663RG4DA4;
+				INFOPLIST_FILE = AgentMeterWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zain.agentmeter.ios.dev.widget;
+				PRODUCT_NAME = AgentMeterWidget;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		AC57031C12C617C51F4D96D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		BA1E54455240E036E2B80C20 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AgentMeterWidget/AgentMeterWidget.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6663RG4DA4;
+				INFOPLIST_FILE = AgentMeterWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zain.agentmeter.ios.dev.widget;
+				PRODUCT_NAME = AgentMeterWidget;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D4179DD67A62E4AC9B05128C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				INFOPLIST_FILE = Tests/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zain.agentmeter.ios.dev.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		F8BD6EFEE8519E3F2814EB8C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AgentMeteriOS/AgentMeteriOS.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6663RG4DA4;
+				INFOPLIST_FILE = AgentMeteriOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zain.agentmeter.ios.dev;
+				PRODUCT_NAME = AgentMeter;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5E6C5459AC0AB712CBCA990C /* Build configuration list for PBXNativeTarget "AgentMeterWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BA1E54455240E036E2B80C20 /* Debug */,
+				9BEF669CC98C4D09C5ED150F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		963EEA3FB1D385EE336386EB /* Build configuration list for PBXProject "AgentMeteriOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC57031C12C617C51F4D96D0 /* Debug */,
+				7CEE55BA3F9BB991FC24058A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C23308E9D9ECF895D0E6E3A7 /* Build configuration list for PBXNativeTarget "AgentMeteriOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F8BD6EFEE8519E3F2814EB8C /* Debug */,
+				4C58BC4F60BF4651D5A57C9F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D3C3B63D9DBEED6326B39393 /* Build configuration list for PBXNativeTarget "AgentMeteriOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				803B642D46F8AAC4A737CD39 /* Debug */,
+				D4179DD67A62E4AC9B05128C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 53DC529E9EAD33B43CF72C44 /* Project object */;
+}

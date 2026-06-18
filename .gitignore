@@ -1,0 +1,133 @@
+# Xcode user/session
+xcuserdata/
+.swiftpm/xcode/xcshareddata/
+.codexbar/config.json
+*.env
+*.local
+
+# Build products
+.build/
+DerivedData
+.agentmeter-artifacts/
+.build-agentmeter-*/
+AgentMeteriOS/build*/
+
+# Bundles / artifacts
+# App bundles (any variation)
+CodexBar.app/
+CodexBar *.app/
+CodexBar_*.app/
+Codexbar.app/
+AgentMeter*.app/
+# Release artifacts
+*.ipa
+*.dSYM*
+*.zip
+*.delta
+*.dmg
+*.pkg
+*.tar.gz
+*.tgz
+Icon.iconset
+debug_*.swift
+
+# Misc
+.DS_Store
+.vscode/
+.swiftpm-cache/
+.tmp-clang/
+
+# Debug/analysis docs
+docs/*-analysis.md
+docs/.astro/
+
+# Swift Package Manager metadata (leave sources tracked)
+# Packages/
+# Package.resolved
+
+# Inherited CodexBar marketing / site / release feed (not part of AgentMeter)
+codexbar.png
+appcast.xml
+CHANGELOG.md
+
+# Icon Composer source + the vestigial repo-root icns are superseded by
+# Scripts/build_icon.sh, which regenerates the shipped Sources/CodexBar/Resources/Icon-classic.icns.
+Icon.icon/
+/Icon.icns
+
+# Ship only AgentMeter docs, not the inherited CodexBar docs site (CNAME, index.html, provider pages)
+docs/*
+!docs/FORKING.md
+!docs/abacus.md
+!docs/alibaba-coding-plan.md
+!docs/alibaba-token-plan.md
+!docs/amp.md
+!docs/antigravity.md
+!docs/augment.md
+!docs/bedrock.md
+!docs/claude.md
+!docs/cli-configuration.md
+!docs/codebuff.md
+!docs/configuration.md
+!docs/codex.md
+!docs/command-code.md
+!docs/copilot.md
+!docs/crof.md
+!docs/cursor.md
+!docs/deepgram.md
+!docs/deepseek.md
+!docs/devin.md
+!docs/doubao.md
+!docs/elevenlabs.md
+!docs/factory.md
+!docs/gemini.md
+!docs/grok.md
+!docs/jetbrains.md
+!docs/kilo.md
+!docs/kimi-k2.md
+!docs/kimi.md
+!docs/kiro.md
+!docs/mimo.md
+!docs/minimax.md
+!docs/moonshot.md
+!docs/ollama.md
+!docs/openai.md
+!docs/opencode.md
+!docs/openrouter.md
+!docs/providers.md
+!docs/stepfun.md
+!docs/venice.md
+!docs/vertexai.md
+!docs/warp.md
+!docs/zai.md
+!docs/images/
+
+# Private/inherited release and upstream-maintenance helpers are not part of the source-only
+# AgentMeter public surface. Keep the AgentMeter local package/install/verify scripts instead.
+bin/install-codexbar-cli.sh
+Scripts/analyze_quotio.sh
+Scripts/check-release-assets.sh
+Scripts/check_upstreams.sh
+Scripts/changelog-to-html.sh
+Scripts/compile_and_run.sh
+Scripts/docs-list.mjs
+Scripts/generate-llms.mjs
+Scripts/launch.sh
+Scripts/make_appcast.sh
+Scripts/package_app.sh
+Scripts/package_product_paths.sh
+Scripts/prepare_upstream_pr.sh
+Scripts/release.sh
+Scripts/release_artifacts.sh
+Scripts/release_dsym_paths.sh
+Scripts/review_upstream.sh
+Scripts/setup_dev_signing.sh
+Scripts/sign-and-notarize.sh
+Scripts/test_live_update.sh
+Scripts/test_package_product_paths.sh
+Scripts/test_release_dsym_paths.sh
+Scripts/test_sparkle_signing_paths.sh
+Scripts/validate_changelog.sh
+Scripts/verify_appcast.sh
+bin/docs-list
+WidgetExtension/
