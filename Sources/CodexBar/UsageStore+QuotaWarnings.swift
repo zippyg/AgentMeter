@@ -37,6 +37,27 @@ extension UsageStore {
             accountDisplayName: accountDisplayName)
     }
 
+    /// Plays the rate-limit alert sound once when a provider's highest tracked window crosses the
+    /// rage threshold (>= 99% used). Independent of quota-warning notifications so it works on its
+    /// own toggle; silent on the first snapshot per provider so launching while maxed out stays quiet.
+    func handleRateLimitSound(provider: UsageProvider, snapshot: UsageSnapshot) {
+        guard self.settings.rateLimitSoundEnabled else {
+            self.rateLimitLastUsedPercent.removeValue(forKey: provider)
+            return
+        }
+        guard let used = AgentMeterMascotMoodResolver.providerPressure(snapshot: snapshot) else {
+            self.rateLimitLastUsedPercent.removeValue(forKey: provider)
+            return
+        }
+        let decision = RateLimitSoundLogic.decision(
+            previousUsed: self.rateLimitLastUsedPercent[provider],
+            currentUsed: used)
+        self.rateLimitLastUsedPercent[provider] = decision.remembered
+        if decision.play {
+            RateLimitSoundPlayer.shared.play(volume: self.settings.rateLimitSoundVolume)
+        }
+    }
+
     private func handleQuotaWarningTransition(
         provider: UsageProvider,
         window: QuotaWarningWindow,

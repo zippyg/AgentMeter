@@ -71,6 +71,7 @@ struct MenuDescriptor {
         case copyError(String)
         case copyPhoneSnapshotPath
         case copyPhonePairingURL
+        case resetPhonePairings
         case exportPhoneSnapshot
         case revealPhoneSnapshot
     }
@@ -148,7 +149,8 @@ struct MenuDescriptor {
         return Section(entries: [
             .submenu(L("iPhone Snapshot"), MenuActionSystemImage.phone.rawValue, [
                 SubmenuItem(title: L("Copy Snapshot Path"), action: .copyPhoneSnapshotPath),
-                SubmenuItem(title: "Copy Pairing Link (Sensitive)", action: .copyPhonePairingURL),
+                SubmenuItem(title: "Start Phone Pairing", action: .copyPhonePairingURL),
+                SubmenuItem(title: "Reset Paired Phones", action: .resetPhonePairings),
                 SubmenuItem(
                     title: L("Export Snapshot..."),
                     action: .exportPhoneSnapshot,
@@ -738,6 +740,7 @@ extension MenuDescriptor.MenuAction {
         case .copyError: MenuDescriptor.MenuActionSystemImage.copyError.rawValue
         case .copyPhoneSnapshotPath: MenuDescriptor.MenuActionSystemImage.copyError.rawValue
         case .copyPhonePairingURL: "link"
+        case .resetPhonePairings: "iphone.slash"
         case .exportPhoneSnapshot: "square.and.arrow.up"
         case .revealPhoneSnapshot: MenuDescriptor.MenuActionSystemImage.folder.rawValue
         }

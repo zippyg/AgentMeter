@@ -14,6 +14,7 @@ extension StatusItemController {
         let stale: Bool
         let snapshot: UsageSnapshot?
         let statusIndicator: ProviderStatusIndicator
+        let mascotMood: AgentMeterMascotMood
         let warningFlash: Bool
         let needsAnimation: Bool
     }
@@ -333,6 +334,7 @@ extension StatusItemController {
             style == .combined ? 0 : self.tiltAmount(for: primaryProvider) * .pi / 28
 
         let statusIndicator = self.currentStatusIndicator()
+        let mascotMood = AgentMeterMascotMoodResolver.mood(store: self.store)
         let brandIconRequest = BrandPercentIconRequest(
             item: self.statusItem,
             button: button,
@@ -344,6 +346,7 @@ extension StatusItemController {
             stale: stale,
             snapshot: snapshot,
             statusIndicator: statusIndicator,
+            mascotMood: mascotMood,
             warningFlash: warningFlash,
             needsAnimation: needsAnimation)
         if let brandResult = self.applyBrandPercentIconIfNeeded(brandIconRequest) {
@@ -378,6 +381,7 @@ extension StatusItemController {
                 "credits=\(Self.iconSignatureValue(credits))",
                 "stale=\(stale ? "1" : "0")",
                 "status=\(statusIndicator.rawValue)",
+                "mood=\(mascotMood.rawValue)",
                 "blink=\(Self.iconSignatureValue(Double(blink)))",
                 "wiggle=\(Self.iconSignatureValue(Double(wiggle)))",
                 "tilt=\(Self.iconSignatureValue(Double(tilt)))",
@@ -392,7 +396,8 @@ extension StatusItemController {
                 stale: stale,
                 blink: blink,
                 wiggle: wiggle,
-                statusIndicator: statusIndicator)
+                statusIndicator: statusIndicator,
+                mood: mascotMood)
             self.setButtonImage(
                 warningFlash ? Self.quotaWarningFlashImage(base: image) : image, for: button)
         }
@@ -414,18 +419,21 @@ extension StatusItemController {
         let displayText = self.agentMeterMenuBarDisplayText(
             for: request.provider,
             snapshot: request.snapshot)
-        let baseImage = AgentMeterMascotIcon.menuBarGlyph()
-            ?? ProviderBrandIcon.image(for: request.provider)
+        let baseImage = IconRenderer.makeAgentMeterIdentityIcon(
+            stale: request.stale,
+            statusIndicator: request.statusIndicator,
+            mood: request.mascotMood)
         let signature = [
             "mode=brandPercent",
             "provider=\(request.provider.rawValue)",
             "style=\(String(describing: request.style))",
-            "agentMeterGlyph=\(baseImage == nil ? "0" : "1")",
+            "agentMeterGlyph=1",
             "primary=\(Self.iconSignatureValue(request.primary))",
             "weekly=\(Self.iconSignatureValue(request.weekly))",
             "credits=\(Self.iconSignatureValue(request.credits))",
             "stale=\(request.stale ? "1" : "0")",
             "status=\(request.statusIndicator.rawValue)",
+            "mood=\(request.mascotMood.rawValue)",
             "text=\(displayText)",
             "warningFlash=\(request.warningFlash ? "1" : "0")",
             "anim=\(request.needsAnimation ? "1" : "0")",

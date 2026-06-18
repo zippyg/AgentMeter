@@ -18,7 +18,8 @@ struct AgentMeterPhoneBridgeMenuTests {
         #expect(submenu.systemImageName == "iphone")
         #expect(submenu.items.map(\.title) == [
             "Copy Snapshot Path",
-            "Copy Pairing Link (Sensitive)",
+            "Start Phone Pairing",
+            "Reset Paired Phones",
             "Export Snapshot...",
             "Reveal Snapshot in Finder",
         ])
@@ -26,10 +27,12 @@ struct AgentMeterPhoneBridgeMenuTests {
         #expect(submenu.items[0].isEnabled)
         #expect(submenu.items[1].action == .copyPhonePairingURL)
         #expect(submenu.items[1].isEnabled)
-        #expect(submenu.items[2].action == .exportPhoneSnapshot)
-        #expect(!submenu.items[2].isEnabled)
-        #expect(submenu.items[3].action == .revealPhoneSnapshot)
+        #expect(submenu.items[2].action == .resetPhonePairings)
+        #expect(submenu.items[2].isEnabled)
+        #expect(submenu.items[3].action == .exportPhoneSnapshot)
         #expect(!submenu.items[3].isEnabled)
+        #expect(submenu.items[4].action == .revealPhoneSnapshot)
+        #expect(!submenu.items[4].isEnabled)
     }
 
     @Test
@@ -46,10 +49,10 @@ struct AgentMeterPhoneBridgeMenuTests {
         let section = MenuDescriptor.phoneSnapshotSection(fileURL: fileURL)
         let submenu = try #require(section.entries.onlySubmenu)
 
-        #expect(submenu.items[2].action == .exportPhoneSnapshot)
-        #expect(submenu.items[2].isEnabled)
-        #expect(submenu.items[3].action == .revealPhoneSnapshot)
+        #expect(submenu.items[3].action == .exportPhoneSnapshot)
         #expect(submenu.items[3].isEnabled)
+        #expect(submenu.items[4].action == .revealPhoneSnapshot)
+        #expect(submenu.items[4].isEnabled)
     }
 }
 

@@ -1230,6 +1230,7 @@ extension UsageStore {
                 }
                 let backfilled = labeled.backfillingResetTimes(from: self.lastKnownResetSnapshots[provider])
                 self.handleQuotaWarningTransitions(provider: provider, snapshot: backfilled)
+                self.handleRateLimitSound(provider: provider, snapshot: backfilled)
                 self.handleSessionQuotaTransition(provider: provider, snapshot: backfilled)
                 self.lastKnownResetSnapshots[provider] = backfilled
                 self.snapshots[provider] = backfilled

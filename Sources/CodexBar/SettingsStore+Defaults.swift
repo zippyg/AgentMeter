@@ -182,6 +182,23 @@ extension SettingsStore {
         }
     }
 
+    var rateLimitSoundEnabled: Bool {
+        get { self.defaultsState.rateLimitSoundEnabled }
+        set {
+            self.defaultsState.rateLimitSoundEnabled = newValue
+            self.userDefaults.set(newValue, forKey: "rateLimitSoundEnabled")
+        }
+    }
+
+    var rateLimitSoundVolume: Double {
+        get { self.defaultsState.rateLimitSoundVolume }
+        set {
+            let clamped = min(1, max(0, newValue))
+            self.defaultsState.rateLimitSoundVolume = clamped
+            self.userDefaults.set(clamped, forKey: "rateLimitSoundVolume")
+        }
+    }
+
     var quotaWarningMarkersVisible: Bool {
         get { self.defaultsState.quotaWarningMarkersVisible }
         set {

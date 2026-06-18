@@ -310,7 +310,7 @@ public struct QuotaWarningConfig: Codable, Sendable, Equatable {
 }
 
 public enum QuotaWarningThresholds {
-    public static let defaults = [50, 20]
+    public static let defaults = [5] // warn once at 95% used (5% remaining)
     public static let allowedRange = 0...99
 
     public static func sanitized(_ raw: [Int]) -> [Int] {
@@ -323,15 +323,6 @@ public enum QuotaWarningThresholds {
 
     public static func active(_ raw: [Int]) -> [Int] {
         self.sanitized(raw).filter { $0 > 0 }
-    }
-
-    public static func resolved(upper: Int?, lower: Int?) -> [Int] {
-        guard upper != nil || lower != nil else { return self.defaults }
-
-        let resolvedUpper = self.clamped(upper ?? self.defaults[0])
-        let lowerDefault = resolvedUpper < self.defaults[1] ? 0 : self.defaults[1]
-        let resolvedLower = self.clamped(lower ?? lowerDefault)
-        return self.sanitized([resolvedUpper, resolvedLower])
     }
 
     public static func clamped(_ value: Int) -> Int {

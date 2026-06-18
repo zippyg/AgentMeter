@@ -68,6 +68,79 @@ struct AgentMeterBridgePairing: Equatable {
     }
 }
 
+struct AgentMeterBridgePairingInvitation: Equatable {
+    static let currentVersion = "2"
+
+    let serviceName: String
+    let serviceType: String
+    let sessionID: String
+    let macPublicKey: String
+    let directHost: String?
+    let directPort: UInt16?
+
+    init?(
+        serviceName: String,
+        serviceType: String = AgentMeterBridgePairing.defaultServiceType,
+        sessionID: String,
+        macPublicKey: String,
+        directHost: String? = nil,
+        directPort: UInt16? = nil)
+    {
+        let serviceName = serviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serviceType = serviceType.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let macPublicKey = macPublicKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directHost = directHost?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !serviceName.isEmpty,
+              serviceType == AgentMeterBridgePairing.defaultServiceType,
+              Self.isValidBase64URL(sessionID, minDecodedBytes: 16),
+              Self.isValidBase64URL(macPublicKey, minDecodedBytes: 32)
+        else {
+            return nil
+        }
+        self.serviceName = serviceName
+        self.serviceType = serviceType
+        self.sessionID = sessionID
+        self.macPublicKey = macPublicKey
+        self.directHost = directHost?.isEmpty == false ? directHost : nil
+        self.directPort = directPort
+    }
+
+    init?(url: URL) {
+        guard url.scheme == "agentmeter", url.host == "pair" else { return nil }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ name: String) -> String? {
+            items.first { $0.name == name }?.value
+        }
+        guard value("v") == Self.currentVersion,
+              value("token") == nil,
+              let serviceName = value("service"),
+              let sessionID = value("session"),
+              let macPublicKey = value("macKey")
+        else {
+            return nil
+        }
+        self.init(
+            serviceName: serviceName,
+            serviceType: value("type") ?? AgentMeterBridgePairing.defaultServiceType,
+            sessionID: sessionID,
+            macPublicKey: macPublicKey,
+            directHost: value("host"),
+            directPort: value("port").flatMap(UInt16.init))
+    }
+
+    private static func isValidBase64URL(_ value: String, minDecodedBytes: Int) -> Bool {
+        guard value.count >= minDecodedBytes,
+              value.count <= 128,
+              value.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
+              let data = Data(agentMeterBase64URL: value)
+        else {
+            return false
+        }
+        return data.count >= minDecodedBytes
+    }
+}
+
 enum AgentMeterBridgePairingStore {
     private static let keychainService = "com.zain.agentmeter.ios.bridge"
     private static let tokenAccount = "bridge-token"
@@ -170,6 +243,7 @@ enum AgentMeterBridgeError: Error, LocalizedError, Equatable {
     case badResponse
     case snapshotRejected
     case keychainUnavailable
+    case pairingCodeMismatch
 
     var errorDescription: String? {
         switch self {
@@ -187,12 +261,31 @@ enum AgentMeterBridgeError: Error, LocalizedError, Equatable {
             "Snapshot failed validation"
         case .keychainUnavailable:
             "Keychain unavailable"
+        case .pairingCodeMismatch:
+            "Pairing code was not accepted"
         }
     }
 }
 
 final class AgentMeterBridgeClient: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.zain.agentmeter.ios.bridge")
+
+    private struct PairingResponse: Decodable {
+        let schemaVersion: Int
+        let sessionID: String
+        let deviceID: String
+        let encryptedPayload: String
+    }
+
+    private struct PairingPayload: Decodable {
+        let schemaVersion: Int
+        let serviceName: String
+        let serviceType: String
+        let token: String
+        let deviceID: String
+        let directHost: String?
+        let directPort: UInt16?
+    }
 
     func fetchSnapshot(pairing: AgentMeterBridgePairing, timeout: TimeInterval = 8) async throws
         -> AgentMeterPhoneSnapshot
@@ -212,9 +305,51 @@ final class AgentMeterBridgeClient: @unchecked Sendable {
             }
         }
         do {
-            let endpoint = try await self.discoverEndpoint(pairing: pairing, timeout: timeout)
+            let endpoint = try await self.discoverEndpoint(
+                serviceName: pairing.serviceName,
+                serviceType: pairing.serviceType,
+                timeout: timeout)
             let data = try await self.fetchSnapshotData(endpoint: endpoint, pairing: pairing, timeout: timeout)
             return try self.decodeSnapshotData(data)
+        } catch {
+            throw directError ?? error
+        }
+    }
+
+    func completePairing(
+        invitation: AgentMeterBridgePairingInvitation,
+        code rawCode: String,
+        timeout: TimeInterval = 8)
+        async throws -> AgentMeterBridgePairing
+    {
+        let code = AgentMeterBridgePairingCrypto.normalizedCode(rawCode)
+        guard code.count == AgentMeterBridgePairingCrypto.pairingCodeLength else {
+            throw AgentMeterBridgeError.pairingCodeMismatch
+        }
+        var directError: Error?
+        if let endpoint = invitation.directEndpoint {
+            do {
+                return try await self.completePairing(
+                    endpoint: endpoint,
+                    invitation: invitation,
+                    code: code,
+                    timeout: timeout)
+            } catch AgentMeterBridgeError.pairingCodeMismatch {
+                throw AgentMeterBridgeError.pairingCodeMismatch
+            } catch {
+                directError = error
+            }
+        }
+        do {
+            let endpoint = try await self.discoverEndpoint(
+                serviceName: invitation.serviceName,
+                serviceType: invitation.serviceType,
+                timeout: timeout)
+            return try await self.completePairing(
+                endpoint: endpoint,
+                invitation: invitation,
+                code: code,
+                timeout: timeout)
         } catch {
             throw directError ?? error
         }
@@ -227,17 +362,19 @@ final class AgentMeterBridgeClient: @unchecked Sendable {
         return try AgentMeterPhoneSnapshotStore.decoder.decode(AgentMeterPhoneSnapshot.self, from: data)
     }
 
-    private func discoverEndpoint(pairing: AgentMeterBridgePairing, timeout: TimeInterval) async throws -> NWEndpoint {
+    private func discoverEndpoint(serviceName: String, serviceType: String, timeout: TimeInterval) async throws
+        -> NWEndpoint
+    {
         try await withCheckedThrowingContinuation { continuation in
             let box = AgentMeterBridgeDiscoveryBox(
-                serviceName: pairing.serviceName,
+                serviceName: serviceName,
                 continuation: continuation)
-            let browser = NWBrowser(for: .bonjour(type: pairing.serviceType, domain: nil), using: .tcp)
+            let browser = NWBrowser(for: .bonjour(type: serviceType, domain: nil), using: .tcp)
             box.browser = browser
             browser.browseResultsChangedHandler = { results, _ in
                 guard let endpoint = results.map(\.endpoint).first(where: {
                     if case let .service(name, _, _, _) = $0 {
-                        return name == pairing.serviceName
+                        return name == serviceName
                     }
                     return false
                 }) else {
@@ -261,6 +398,89 @@ final class AgentMeterBridgeClient: @unchecked Sendable {
     private func fetchSnapshotData(endpoint: NWEndpoint, pairing: AgentMeterBridgePairing, timeout: TimeInterval)
         async throws -> Data
     {
+        let headers = AgentMeterBridgeRequestSigner.headers(
+            method: "GET",
+            path: "/snapshot",
+            token: pairing.token)
+        let request = AgentMeterBridgeHTTPRequestBuilder.snapshotRequest(
+            timestamp: headers.timestamp,
+            nonce: headers.nonce,
+            signature: headers.signature,
+            deviceID: pairing.deviceID)
+        return try await self.fetchData(endpoint: endpoint, request: request, timeout: timeout)
+    }
+
+    private func completePairing(
+        endpoint: NWEndpoint,
+        invitation: AgentMeterBridgePairingInvitation,
+        code: String,
+        timeout: TimeInterval)
+        async throws -> AgentMeterBridgePairing
+    {
+        guard let macPublicKeyData = Data(agentMeterBase64URL: invitation.macPublicKey) else {
+            throw AgentMeterBridgeError.badResponse
+        }
+        let privateKey = Curve25519.KeyAgreement.PrivateKey()
+        let clientPublicKey = privateKey.publicKey.rawRepresentation.agentMeterBase64URLEncodedString()
+        let macPublicKey: Curve25519.KeyAgreement.PublicKey
+        do {
+            macPublicKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: macPublicKeyData)
+        } catch {
+            throw AgentMeterBridgeError.badResponse
+        }
+        let sharedSecret = try privateKey.sharedSecretFromKeyAgreement(with: macPublicKey)
+        let context = AgentMeterBridgePairingCrypto.context(
+            sessionID: invitation.sessionID,
+            macPublicKey: invitation.macPublicKey,
+            clientPublicKey: clientPublicKey)
+        let proofKey = AgentMeterBridgePairingCrypto.derivedKey(
+            from: sharedSecret,
+            purpose: "proof",
+            context: context)
+        let proof = AgentMeterBridgePairingCrypto.proof(code: code, key: proofKey, context: context)
+        let request = AgentMeterBridgeHTTPRequestBuilder.pairingFinishRequest(
+            sessionID: invitation.sessionID,
+            clientPublicKey: clientPublicKey,
+            proof: proof)
+        let data: Data
+        do {
+            data = try await self.fetchData(endpoint: endpoint, request: request, timeout: timeout)
+        } catch AgentMeterBridgeError.unauthorized {
+            throw AgentMeterBridgeError.pairingCodeMismatch
+        }
+        let response = try JSONDecoder().decode(PairingResponse.self, from: data)
+        guard response.schemaVersion == 1,
+              response.sessionID == invitation.sessionID,
+              let sealedData = Data(agentMeterBase64URL: response.encryptedPayload)
+        else {
+            throw AgentMeterBridgeError.badResponse
+        }
+        let payloadKey = AgentMeterBridgePairingCrypto.derivedKey(
+            from: sharedSecret,
+            purpose: "payload",
+            context: context)
+        let sealedBox = try ChaChaPoly.SealedBox(combined: sealedData)
+        let payloadData = try ChaChaPoly.open(sealedBox, using: payloadKey, authenticating: context)
+        let payload = try JSONDecoder().decode(PairingPayload.self, from: payloadData)
+        guard payload.schemaVersion == 1,
+              payload.deviceID == response.deviceID
+        else {
+            throw AgentMeterBridgeError.badResponse
+        }
+        guard let pairing = AgentMeterBridgePairing(
+            serviceName: payload.serviceName,
+            serviceType: payload.serviceType,
+            token: payload.token,
+            deviceID: payload.deviceID,
+            directHost: payload.directHost,
+            directPort: payload.directPort)
+        else {
+            throw AgentMeterBridgeError.badResponse
+        }
+        return pairing
+    }
+
+    private func fetchData(endpoint: NWEndpoint, request: String, timeout: TimeInterval) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             let box = AgentMeterBridgeConnectionBox(continuation: continuation)
             let connection = NWConnection(to: endpoint, using: .tcp)
@@ -268,15 +488,6 @@ final class AgentMeterBridgeClient: @unchecked Sendable {
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    let headers = AgentMeterBridgeRequestSigner.headers(
-                        method: "GET",
-                        path: "/snapshot",
-                        token: pairing.token)
-                    let request = AgentMeterBridgeHTTPRequestBuilder.snapshotRequest(
-                        timestamp: headers.timestamp,
-                        nonce: headers.nonce,
-                        signature: headers.signature,
-                        deviceID: pairing.deviceID)
                     connection.send(content: Data(request.utf8), completion: .contentProcessed { error in
                         if error != nil {
                             box.fail(.connectionFailed)
@@ -358,6 +569,25 @@ enum AgentMeterBridgeHTTPRequestBuilder {
         lines.append("Connection: close")
         lines.append("")
         lines.append("")
+        return lines.joined(separator: "\r\n")
+    }
+
+    static func pairingFinishRequest(sessionID: String, clientPublicKey: String, proof: String) -> String {
+        var components = URLComponents()
+        components.path = "/pair/finish"
+        components.queryItems = [
+            URLQueryItem(name: "session", value: sessionID),
+            URLQueryItem(name: "clientKey", value: clientPublicKey),
+            URLQueryItem(name: "proof", value: proof),
+        ]
+        let target = components.string ?? "/pair/finish"
+        let lines = [
+            "GET \(target) HTTP/1.1",
+            "Host: agentmeter.local",
+            "Connection: close",
+            "",
+            "",
+        ]
         return lines.joined(separator: "\r\n")
     }
 }
@@ -466,9 +696,52 @@ private extension AgentMeterBridgePairing {
     }
 }
 
+private extension AgentMeterBridgePairingInvitation {
+    var directEndpoint: NWEndpoint? {
+        guard let directHost,
+              let directPort,
+              let port = NWEndpoint.Port(rawValue: directPort)
+        else {
+            return nil
+        }
+        return .hostPort(host: NWEndpoint.Host(directHost), port: port)
+    }
+}
+
 private enum AgentMeterBridgeHTTPPayload {
     case body(Data)
     case error(AgentMeterBridgeError)
+}
+
+private enum AgentMeterBridgePairingCrypto {
+    static let pairingCodeLength = 12
+    private static let pairingCodeAlphabet = Set("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+
+    static func context(sessionID: String, macPublicKey: String, clientPublicKey: String) -> Data {
+        Data("AgentMeter Pairing v1\n\(sessionID)\n\(macPublicKey)\n\(clientPublicKey)".utf8)
+    }
+
+    static func derivedKey(from sharedSecret: SharedSecret, purpose: String, context: Data) -> SymmetricKey {
+        sharedSecret.hkdfDerivedSymmetricKey(
+            using: SHA256.self,
+            salt: Data("AgentMeter Pairing \(purpose) v1".utf8),
+            sharedInfo: context,
+            outputByteCount: 32)
+    }
+
+    static func proof(code: String, key: SymmetricKey, context: Data) -> String {
+        var message = Data("finish\n".utf8)
+        message.append(context)
+        message.append(Data("\n\(Self.normalizedCode(code))".utf8))
+        let mac = HMAC<SHA256>.authenticationCode(for: message, using: key)
+        return Data(mac).agentMeterBase64URLEncodedString()
+    }
+
+    static func normalizedCode(_ raw: String) -> String {
+        raw.uppercased().filter { character in
+            Self.pairingCodeAlphabet.contains(character)
+        }
+    }
 }
 
 private enum AgentMeterBridgeRequestSigner {
@@ -508,5 +781,25 @@ private enum AgentMeterBridgeRequestSigner {
                 .replacingOccurrences(of: "=", with: "")
         }
         return "\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))\(Int(Date().timeIntervalSince1970))"
+    }
+}
+
+private extension Data {
+    init?(agentMeterBase64URL value: String) {
+        var normalized = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = normalized.count % 4
+        if remainder > 0 {
+            normalized += String(repeating: "=", count: 4 - remainder)
+        }
+        self.init(base64Encoded: normalized)
+    }
+
+    func agentMeterBase64URLEncodedString() -> String {
+        self.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }

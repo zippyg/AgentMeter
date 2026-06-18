@@ -556,12 +556,12 @@ struct SettingsStoreTests {
             syntheticTokenStore: NoopSyntheticTokenStore())
 
         #expect(store.quotaWarningNotificationsEnabled == false)
-        #expect(store.quotaWarningThresholds == [50, 20])
+        #expect(store.quotaWarningThresholds == [5])
         #expect(store.quotaWarningWindowEnabled(.session) == true)
         #expect(store.quotaWarningWindowEnabled(.weekly) == true)
         #expect(store.quotaWarningSoundEnabled == true)
         #expect(store.quotaWarningMarkersVisible == true)
-        #expect(defaults.array(forKey: "quotaWarningThresholds") as? [Int] == [50, 20])
+        #expect(defaults.array(forKey: "quotaWarningThresholds") as? [Int] == [5])
         #expect(defaults.object(forKey: "quotaWarningSessionEnabled") as? Bool == true)
         #expect(defaults.object(forKey: "quotaWarningWeeklyEnabled") as? Bool == true)
         #expect(defaults.bool(forKey: "quotaWarningSoundEnabled") == true)
@@ -602,14 +602,6 @@ struct SettingsStoreTests {
 
         #expect(store.quotaWarningThresholds == [99, 50, 20, 0])
         #expect(defaults.array(forKey: "quotaWarningThresholds") as? [Int] == [99, 50, 20, 0])
-    }
-
-    @Test
-    func `quota warning threshold pair resolves blanks and clamps bounds`() {
-        #expect(QuotaWarningThresholds.resolved(upper: nil, lower: nil) == [50, 20])
-        #expect(QuotaWarningThresholds.resolved(upper: nil, lower: 10) == [50, 10])
-        #expect(QuotaWarningThresholds.resolved(upper: 10, lower: nil) == [10, 0])
-        #expect(QuotaWarningThresholds.resolved(upper: 120, lower: -5) == [99, 0])
     }
 
     @Test

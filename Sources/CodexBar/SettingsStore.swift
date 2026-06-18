@@ -360,6 +360,8 @@ extension SettingsStore {
             userDefaults.set(true, forKey: "quotaWarningMarkersVisible")
         }
         let weeklyProgressWorkDays = userDefaults.object(forKey: "weeklyProgressWorkDays") as? Int
+        let rateLimitSoundEnabled = userDefaults.object(forKey: "rateLimitSoundEnabled") as? Bool ?? true
+        let rateLimitSoundVolume = userDefaults.object(forKey: "rateLimitSoundVolume") as? Double ?? 1.0
         let usageBarsShowUsed = userDefaults.object(forKey: "usageBarsShowUsed") as? Bool ?? true
         let resetTimesShowAbsolute = userDefaults.object(forKey: "resetTimesShowAbsolute") as? Bool ?? false
         let providerChangelogLinksEnabled = userDefaults.object(
@@ -435,6 +437,8 @@ extension SettingsStore {
             quotaWarningSessionEnabled: quotaWarnings.sessionEnabled,
             quotaWarningWeeklyEnabled: quotaWarnings.weeklyEnabled,
             quotaWarningSoundEnabled: quotaWarnings.soundEnabled,
+            rateLimitSoundEnabled: rateLimitSoundEnabled,
+            rateLimitSoundVolume: rateLimitSoundVolume,
             quotaWarningMarkersVisible: quotaWarningMarkersVisible,
             weeklyProgressWorkDays: weeklyProgressWorkDays,
             usageBarsShowUsed: usageBarsShowUsed,

@@ -103,7 +103,10 @@ extension StatusItemController {
     }
 
     private func measuredStandardMenuWidthCacheToken(for action: MenuDescriptor.MenuAction) -> String {
-        switch action {
+        if let token = self.phoneBridgeWidthCacheToken(for: action) {
+            return token
+        }
+        return switch action {
         case .installUpdate:
             "installUpdate"
         case .refresh:
@@ -136,14 +139,29 @@ extension StatusItemController {
             "quit"
         case let .copyError(message):
             "copyError:\(message)"
+        case .copyPhoneSnapshotPath,
+             .copyPhonePairingURL,
+             .resetPhonePairings,
+             .exportPhoneSnapshot,
+             .revealPhoneSnapshot:
+            "copyPhoneSnapshotPath"
+        }
+    }
+
+    private func phoneBridgeWidthCacheToken(for action: MenuDescriptor.MenuAction) -> String? {
+        switch action {
         case .copyPhoneSnapshotPath:
             "copyPhoneSnapshotPath"
         case .copyPhonePairingURL:
             "copyPhonePairingURL"
+        case .resetPhonePairings:
+            "resetPhonePairings"
         case .exportPhoneSnapshot:
             "exportPhoneSnapshot"
         case .revealPhoneSnapshot:
             "revealPhoneSnapshot"
+        default:
+            nil
         }
     }
 }

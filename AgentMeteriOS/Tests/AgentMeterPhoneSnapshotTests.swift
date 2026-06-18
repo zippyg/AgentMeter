@@ -38,6 +38,36 @@ final class AgentMeterPhoneSnapshotTests: XCTestCase {
         XCTAssertTrue(request.hasSuffix("\r\n\r\n"))
     }
 
+    func test_securePairingInvitationDoesNotRequireTokenInURL() throws {
+        let macKey = String(repeating: "A", count: 43)
+        let url = try XCTUnwrap(URL(string: """
+        agentmeter://pair?v=2&service=AgentMeter%20Test&type=_agentmeter._tcp&session=abcdefghijklmnopqrstuv&macKey=\(macKey)&host=127.0.0.1&port=54042
+        """))
+        let invitation = try XCTUnwrap(AgentMeterBridgePairingInvitation(url: url))
+
+        XCTAssertEqual(invitation.serviceName, "AgentMeter Test")
+        XCTAssertEqual(invitation.sessionID, "abcdefghijklmnopqrstuv")
+        XCTAssertEqual(invitation.macPublicKey, macKey)
+        XCTAssertEqual(invitation.directHost, "127.0.0.1")
+        XCTAssertEqual(invitation.directPort, 54042)
+        XCTAssertNil(AgentMeterBridgePairing(url: url))
+    }
+
+    func test_pairingFinishRequestDoesNotTransmitCodeOrToken() throws {
+        let request = AgentMeterBridgeHTTPRequestBuilder.pairingFinishRequest(
+            sessionID: "abcdefghijklmnopqrstuv",
+            clientPublicKey: "client_public_key_value",
+            proof: "proof_value")
+
+        XCTAssertTrue(request.hasPrefix("GET /pair/finish?"))
+        XCTAssertTrue(request.contains("session=abcdefghijklmnopqrstuv"))
+        XCTAssertTrue(request.contains("clientKey=client_public_key_value"))
+        XCTAssertTrue(request.contains("proof=proof_value"))
+        XCTAssertFalse(request.localizedCaseInsensitiveContains("token"))
+        XCTAssertFalse(request.localizedCaseInsensitiveContains("code"))
+        XCTAssertTrue(request.hasSuffix("\r\n\r\n"))
+    }
+
     func test_storeLoadsMacContractSnapshotAndFiltersToPrimaryProviders() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentmeter-ios-store-tests", isDirectory: true)

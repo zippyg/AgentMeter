@@ -37,6 +37,9 @@ private enum AgentMeterAppearance: String, CaseIterable, Identifiable {
 }
 
 struct AgentMeterDashboardView: View {
+    private static let pairingCodeAlphabet = Set("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+    private static let pairingCodeLength = 12
+
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage(AgentMeterPhoneSettings.usageRangeKey, store: AgentMeterPhoneSettings.sharedDefaults)
     private var usageRangeRawValue = AgentMeterUsageRange.currentSession.rawValue
@@ -45,6 +48,7 @@ struct AgentMeterDashboardView: View {
     @StateObject private var model = AgentMeterSnapshotModel()
     @State private var activityStatus = "Not running"
     @State private var isImportingSnapshot = false
+    @State private var pairingCode = ""
     #if DEBUG
     @State private var didHandleLaunchAutomation = false
     private static let autostartLiveActivityEnvironmentKey = "AGENTMETER_AUTOSTART_LIVE_ACTIVITY"
@@ -75,6 +79,7 @@ struct AgentMeterDashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     summaryHeader
+                    pairingPanel
                     UsageRangePicker(selection: self.$usageRangeRawValue)
                     InsightsGrid(
                         insights: self.insights,
@@ -164,6 +169,47 @@ struct AgentMeterDashboardView: View {
         }
         .padding(16)
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private var pairingPanel: some View {
+        if let invitation = self.model.pendingPairingInvitation {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Pair \(invitation.serviceName)")
+                    .font(.headline)
+                Text("Enter the one-time code shown on your Mac.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    TextField("Code", text: self.$pairingCode)
+                        .textContentType(.oneTimeCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .keyboardType(.asciiCapable)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Pair") {
+                        self.model.completePendingPairing(code: self.pairingCode)
+                        self.pairingCode = ""
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(self.model.isCompletingPairing || self.normalizedPairingCode.count != Self.pairingCodeLength)
+                    Button("Cancel") {
+                        self.pairingCode = ""
+                        self.model.cancelPendingPairing()
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var normalizedPairingCode: String {
+        self.pairingCode.uppercased().filter { character in
+            Self.pairingCodeAlphabet.contains(character)
+        }
     }
 
     private var statusPill: some View {

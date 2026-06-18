@@ -767,13 +767,14 @@ enum IconRenderer {
         stale: Bool,
         blink: CGFloat = 0,
         wiggle: CGFloat = 0,
-        statusIndicator: ProviderStatusIndicator = .none)
+        statusIndicator: ProviderStatusIndicator = .none,
+        mood: AgentMeterMascotMood = .neutral)
         -> NSImage
     {
         self.renderImage {
             let alpha: CGFloat = stale ? 0.55 : 1.0
             let fill = NSColor.labelColor.withAlphaComponent(alpha)
-            self.drawAgentMeterRobot(fill: fill, blink: blink, wiggle: wiggle)
+            self.drawAgentMeterRobot(fill: fill, blink: blink, wiggle: wiggle, mood: mood)
             Self.drawStatusOverlay(indicator: statusIndicator)
         }
     }
@@ -832,8 +833,14 @@ enum IconRenderer {
         return NSNumber(value: key)
     }
 
-    private static func drawAgentMeterRobot(fill: NSColor, blink: CGFloat, wiggle: CGFloat) {
+    private static func drawAgentMeterRobot(
+        fill: NSColor,
+        blink: CGFloat,
+        wiggle: CGFloat,
+        mood: AgentMeterMascotMood)
+    {
         let ctx = NSGraphicsContext.current?.cgContext
+        // The antennae that used to carry the wiggle are gone; reuse it as a faint eye glance.
         let wigglePx = Int((Self.grid.snapDelta(wiggle * 0.7) * Self.outputScale).rounded())
 
         fill.setFill()
@@ -849,34 +856,66 @@ enum IconRenderer {
             path.fill()
         }
 
-        // The render grid is y-up (larger y is higher), so antennae sit at high y.
-        // Antennae on top, with a subtle wiggle sway.
-        fillRect(x: 11, y: 28 + wigglePx / 6, w: 3, h: 7, radius: 1)
-        fillRect(x: 22, y: 28 - wigglePx / 6, w: 3, h: 7, radius: 1)
-        // Bold head filling the canvas so the glyph reads large in the menu bar.
-        fillRect(x: 3, y: 2, w: 30, h: 30, radius: 5)
+        // Bold rounded head that nearly fills the canvas. No antennae, so the face reads large at 18px
+        // and the freed top space lets the eyes and mouth breathe. The render grid is y-up.
+        fillRect(x: 2, y: 2, w: 32, h: 32, radius: 9)
 
-        // Eyes (upper) and a meter-bar mouth (lower), punched out so the bar shows through.
+        // Face features punched out so the menu bar shows through.
         ctx?.saveGState()
+        ctx?.setShouldAntialias(true)
         ctx?.setBlendMode(.clear)
-        ctx?.fillEllipse(in: Self.grid.rect(x: 10, y: 18, w: 6, h: 6))
-        ctx?.fillEllipse(in: Self.grid.rect(x: 20, y: 18, w: 6, h: 6))
-        ctx?.addPath(CGPath(
-            roundedRect: Self.grid.rect(x: 9, y: 7, w: 18, h: 3),
-            cornerWidth: Self.grid.pt(1),
-            cornerHeight: Self.grid.pt(1),
-            transform: nil))
-        ctx?.fillPath()
+
+        let eyeWidthPx = 8
+        let eyeYPx = 19
+        ctx?.fillEllipse(in: Self.grid.rect(x: 8 + wigglePx, y: eyeYPx, w: eyeWidthPx, h: eyeWidthPx))
+        ctx?.fillEllipse(in: Self.grid.rect(x: 20 + wigglePx, y: eyeYPx, w: eyeWidthPx, h: eyeWidthPx))
+
+        // Mouth: one connected shape per mood (a flat slot or a smile/frown arc), never disjoint
+        // segments, which is what read as noise at 18px before.
+        switch mood {
+        case .neutral:
+            ctx?.addPath(CGPath(
+                roundedRect: Self.grid.rect(x: 11, y: 11, w: 14, h: 3),
+                cornerWidth: Self.grid.pt(1),
+                cornerHeight: Self.grid.pt(1),
+                transform: nil))
+            ctx?.fillPath()
+        case .happy:
+            // Smile: the lower arc of a circle centred above the mouth line (middle dips, corners lift).
+            self.strokeMouthArc(ctx: ctx, centerPx: (18, 15), radiusPx: 7, startDeg: 202, endDeg: 338)
+        case .sad:
+            // Frown: the upper arc of a circle centred below the mouth line (middle lifts, corners drop).
+            self.strokeMouthArc(ctx: ctx, centerPx: (18, 8), radiusPx: 7, startDeg: 22, endDeg: 158)
+        }
         ctx?.restoreGState()
 
         // Blink: eyelids close down over the eyes.
         guard blink > 0.001 else { return }
         let clamped = max(0, min(blink, 1))
-        let lidPx = Int((6 * clamped).rounded())
+        let lidPx = Int((CGFloat(eyeWidthPx) * clamped).rounded())
         guard lidPx > 0 else { return }
         fill.setFill()
-        fillRect(x: 10, y: 24 - lidPx, w: 6, h: lidPx)
-        fillRect(x: 20, y: 24 - lidPx, w: 6, h: lidPx)
+        fillRect(x: 8 + wigglePx, y: eyeYPx + eyeWidthPx - lidPx, w: eyeWidthPx, h: lidPx)
+        fillRect(x: 20 + wigglePx, y: eyeYPx + eyeWidthPx - lidPx, w: eyeWidthPx, h: lidPx)
+    }
+
+    private static func strokeMouthArc(
+        ctx: CGContext?,
+        centerPx: (x: Int, y: Int),
+        radiusPx: Int,
+        startDeg: CGFloat,
+        endDeg: CGFloat)
+    {
+        guard let ctx else { return }
+        ctx.setLineWidth(Self.grid.pt(3))
+        ctx.setLineCap(.round)
+        ctx.addArc(
+            center: CGPoint(x: Self.grid.pt(centerPx.x), y: Self.grid.pt(centerPx.y)),
+            radius: Self.grid.pt(radiusPx),
+            startAngle: startDeg * .pi / 180,
+            endAngle: endDeg * .pi / 180,
+            clockwise: false)
+        ctx.strokePath()
     }
 
     private static func cachedIcon(for key: IconCacheKey) -> NSImage? {

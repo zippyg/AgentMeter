@@ -2,7 +2,10 @@ import AppKit
 
 extension StatusItemController {
     func selector(for action: MenuDescriptor.MenuAction) -> (Selector, Any?) {
-        switch action {
+        if let selector = self.phoneBridgeSelector(for: action) {
+            return selector
+        }
+        return switch action {
         case .installUpdate: (#selector(self.installUpdate), nil)
         case .refresh: (#selector(self.refreshNow), nil)
         case .refreshAugmentSession: (#selector(self.refreshAugmentSession), nil)
@@ -20,10 +23,29 @@ extension StatusItemController {
         case .about: (#selector(self.showSettingsAbout), nil)
         case .quit: (#selector(self.quit), nil)
         case let .copyError(message): (#selector(self.copyError(_:)), message)
-        case .copyPhoneSnapshotPath: (#selector(self.copyPhoneSnapshotPath(_:)), nil)
-        case .copyPhonePairingURL: (#selector(self.copyPhonePairingURL(_:)), nil)
-        case .exportPhoneSnapshot: (#selector(self.exportPhoneSnapshot(_:)), nil)
-        case .revealPhoneSnapshot: (#selector(self.revealPhoneSnapshot(_:)), nil)
+        case .copyPhoneSnapshotPath,
+             .copyPhonePairingURL,
+             .resetPhonePairings,
+             .exportPhoneSnapshot,
+             .revealPhoneSnapshot:
+            (#selector(self.copyPhoneSnapshotPath(_:)), nil)
+        }
+    }
+
+    private func phoneBridgeSelector(for action: MenuDescriptor.MenuAction) -> (Selector, Any?)? {
+        switch action {
+        case .copyPhoneSnapshotPath:
+            (#selector(self.copyPhoneSnapshotPath(_:)), nil)
+        case .copyPhonePairingURL:
+            (#selector(self.copyPhonePairingURL(_:)), nil)
+        case .resetPhonePairings:
+            (#selector(self.resetPhonePairings(_:)), nil)
+        case .exportPhoneSnapshot:
+            (#selector(self.exportPhoneSnapshot(_:)), nil)
+        case .revealPhoneSnapshot:
+            (#selector(self.revealPhoneSnapshot(_:)), nil)
+        default:
+            nil
         }
     }
 

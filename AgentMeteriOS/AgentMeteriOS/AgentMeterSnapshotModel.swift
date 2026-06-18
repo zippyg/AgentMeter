@@ -6,6 +6,8 @@ final class AgentMeterSnapshotModel: ObservableObject {
     @Published private(set) var snapshot: AgentMeterPhoneSnapshot
     @Published private(set) var sourceMessage: String
     @Published private(set) var bridgeMessage: String
+    @Published private(set) var pendingPairingInvitation: AgentMeterBridgePairingInvitation?
+    @Published private(set) var isCompletingPairing = false
 
     private let fileURL: URL
     private let bridgeClient = AgentMeterBridgeClient()
@@ -58,6 +60,11 @@ final class AgentMeterSnapshotModel: ObservableObject {
 
     @discardableResult
     func handlePairingURL(_ url: URL) -> Bool {
+        if let invitation = AgentMeterBridgePairingInvitation(url: url) {
+            self.pendingPairingInvitation = invitation
+            self.bridgeMessage = "Enter Mac pairing code"
+            return true
+        }
         guard let pairing = AgentMeterBridgePairing(url: url) else { return false }
         do {
             try AgentMeterBridgePairingStore.save(pairing)
@@ -68,6 +75,36 @@ final class AgentMeterSnapshotModel: ObservableObject {
         } catch {
             self.bridgeMessage = "Pairing failed"
             return false
+        }
+    }
+
+    func cancelPendingPairing() {
+        self.pendingPairingInvitation = nil
+        if AgentMeterBridgePairingStore.load() == nil {
+            self.bridgeMessage = "Mac bridge not paired"
+        }
+    }
+
+    func completePendingPairing(code: String) {
+        guard let invitation = self.pendingPairingInvitation,
+              !self.isCompletingPairing
+        else {
+            return
+        }
+        self.isCompletingPairing = true
+        self.bridgeMessage = "Pairing \(invitation.serviceName)"
+        Task { @MainActor in
+            defer { self.isCompletingPairing = false }
+            do {
+                let pairing = try await self.bridgeClient.completePairing(invitation: invitation, code: code)
+                try AgentMeterBridgePairingStore.save(pairing)
+                self.pendingPairingInvitation = nil
+                self.bridgeMessage = "Paired to \(pairing.serviceName)"
+                self.startBridgeSync()
+                await self.syncFromBridge()
+            } catch {
+                self.bridgeMessage = Self.bridgeMessage(for: error)
+            }
         }
     }
 
@@ -148,6 +185,8 @@ final class AgentMeterSnapshotModel: ObservableObject {
             return "Snapshot rejected"
         case .keychainUnavailable:
             return "Keychain unavailable"
+        case .pairingCodeMismatch:
+            return "Pairing code rejected"
         }
     }
 }

@@ -9,6 +9,7 @@ final class AgentMeterLiveSyncServer: @unchecked Sendable {
     private let logger = CodexBarLog.logger(LogCategories.agentMeterBridge)
     private let stateLock = NSLock()
     private let authorizer = AgentMeterBridgeRequestAuthorizer()
+    private let pairingCoordinator: AgentMeterBridgePairingCoordinator
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: AgentMeterLiveSyncHTTPConnection] = [:]
     private var legacyToken: String?
@@ -16,21 +17,24 @@ final class AgentMeterLiveSyncServer: @unchecked Sendable {
 
     init(
         fileURL: URL = AgentMeterPhoneSnapshotStore.defaultURL(),
-        serviceName: String = AgentMeterBridgeTokenStore.serviceName())
+        serviceName: String = AgentMeterBridgeTokenStore.serviceName(),
+        pairingCoordinator: AgentMeterBridgePairingCoordinator = .shared)
     {
         self.fileURL = fileURL
         self.serviceName = serviceName
+        self.pairingCoordinator = pairingCoordinator
     }
 
     var pairingURL: URL? {
-        guard let secret = AgentMeterBridgeTokenStore.createPairingSecret() else { return nil }
+        self.pairingInvitation?.url
+    }
+
+    var pairingInvitation: AgentMeterBridgePairingInvitation? {
         self.stateLock.lock()
         let port = self.publishedPort
         self.stateLock.unlock()
-        return AgentMeterBridgeTokenStore.pairingURL(
+        return self.pairingCoordinator.createInvitation(
             serviceName: self.serviceName,
-            token: secret.token,
-            deviceID: secret.deviceID,
             directHost: AgentMeterBridgeRuntimeStore.bestHost(),
             directPort: port)
     }
@@ -144,6 +148,7 @@ final class AgentMeterLiveSyncServer: @unchecked Sendable {
             fileURL: self.fileURL,
             tokenProvider: { [weak self] deviceID in self?.tokenForRequest(deviceID: deviceID) },
             authorizer: self.authorizer,
+            pairingCoordinator: self.pairingCoordinator,
             onComplete: { [weak self] id in
                 self?.connections.removeValue(forKey: id)
             })
@@ -161,6 +166,7 @@ private final class AgentMeterLiveSyncHTTPConnection: @unchecked Sendable {
     private let fileURL: URL
     private let tokenProvider: @Sendable (String?) -> String?
     private let authorizer: AgentMeterBridgeRequestAuthorizer
+    private let pairingCoordinator: AgentMeterBridgePairingCoordinator
     private let onComplete: @Sendable (ObjectIdentifier) -> Void
     private var buffer = Data()
     private var finished = false
@@ -170,12 +176,14 @@ private final class AgentMeterLiveSyncHTTPConnection: @unchecked Sendable {
         fileURL: URL,
         tokenProvider: @escaping @Sendable (String?) -> String?,
         authorizer: AgentMeterBridgeRequestAuthorizer,
+        pairingCoordinator: AgentMeterBridgePairingCoordinator,
         onComplete: @escaping @Sendable (ObjectIdentifier) -> Void)
     {
         self.connection = connection
         self.fileURL = fileURL
         self.tokenProvider = tokenProvider
         self.authorizer = authorizer
+        self.pairingCoordinator = pairingCoordinator
         self.onComplete = onComplete
     }
 
@@ -236,6 +244,8 @@ private final class AgentMeterLiveSyncHTTPConnection: @unchecked Sendable {
             switch request.path {
             case "/health":
                 self.send(.json(["status": "ok", "service": "AgentMeter"]))
+            case "/pair/finish":
+                self.sendPairingFinish(request: request)
             case "/snapshot":
                 guard self.isAuthorized(request: request) else {
                     self.send(.unauthorized("Pair this iPhone from the AgentMeter Mac menu"))
@@ -247,6 +257,25 @@ private final class AgentMeterLiveSyncHTTPConnection: @unchecked Sendable {
             }
         } catch {
             self.send(.badRequest("Invalid HTTP request"))
+        }
+    }
+
+    private func sendPairingFinish(request: AgentMeterLiveSyncHTTPRequest) {
+        let result = self.pairingCoordinator.complete(
+            sessionID: request.queryItems["session"],
+            clientPublicKey: request.queryItems["clientKey"],
+            proof: request.queryItems["proof"])
+        switch result {
+        case let .success(data):
+            self.send(.ok(data, contentType: "application/json; charset=utf-8"))
+        case .failure(.invalidRequest):
+            self.send(.badRequest("Invalid pairing request"))
+        case .failure(.sessionNotFound), .failure(.sessionExpired):
+            self.send(.unauthorized("Pairing session expired"))
+        case .failure(.tooManyAttempts), .failure(.badProof):
+            self.send(.unauthorized("Pairing code rejected"))
+        case .failure(.keychainUnavailable), .failure(.encryptionFailed):
+            self.send(.serverError("Pairing failed"))
         }
     }
 
@@ -388,6 +417,7 @@ private final class AgentMeterLiveSyncHTTPConnection: @unchecked Sendable {
 private struct AgentMeterLiveSyncHTTPRequest {
     let method: String
     let path: String
+    let queryItems: [String: String]
     let headers: [String: String]
 
     init(data: Data) throws {
@@ -407,7 +437,16 @@ private struct AgentMeterLiveSyncHTTPRequest {
             throw AgentMeterLiveSyncHTTPRequestError.invalid
         }
         self.method = String(requestParts[0]).uppercased()
-        self.path = URLComponents(string: String(requestParts[1]))?.path ?? String(requestParts[1])
+        let target = String(requestParts[1])
+        let components = URLComponents(string: target)
+        self.path = components?.path ?? target
+        var parsedQueryItems: [String: String] = [:]
+        for item in components?.queryItems ?? [] {
+            if let value = item.value {
+                parsedQueryItems[item.name] = value
+            }
+        }
+        self.queryItems = parsedQueryItems
         var parsedHeaders: [String: String] = [:]
         for line in lines {
             guard let separator = line.firstIndex(of: ":") else { continue }

@@ -35,6 +35,28 @@ struct GlobalQuotaWarningSettingsView: View {
                     .font(.footnote)
             }
             .toggleStyle(.checkbox)
+
+            Divider().padding(.vertical, 2)
+
+            Toggle(isOn: self.$settings.rateLimitSoundEnabled) {
+                Text("Play a sound when you hit a rate limit")
+                    .font(.footnote)
+            }
+            .toggleStyle(.checkbox)
+
+            HStack(spacing: 8) {
+                Text("Volume")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Slider(value: self.$settings.rateLimitSoundVolume, in: 0...1)
+                    .frame(width: 140)
+                    .disabled(!self.settings.rateLimitSoundEnabled)
+                Button("Test") {
+                    RateLimitSoundPlayer.shared.play(volume: self.settings.rateLimitSoundVolume)
+                }
+                .controlSize(.small)
+            }
+            .padding(.leading, 20)
         }
         .padding(.leading, 20)
     }
@@ -42,7 +64,7 @@ struct GlobalQuotaWarningSettingsView: View {
     private func windowThresholdField(_ window: QuotaWarningWindow) -> some View {
         QuotaWarningThresholdField(
             title: String(format: L("quota_warning_window_warn_at"), window.localizedCapitalizedDisplayName),
-            subtitle: L("quota_warning_global_threshold_subtitle"),
+            subtitle: "Session and weekly windows warn at this used percentage unless a provider overrides them.",
             thresholds: { self.settings.quotaWarningThresholds(window) },
             setThresholds: { self.settings.setQuotaWarningThresholds(window, thresholds: $0) })
             .disabled(!self.settings.quotaWarningWindowEnabled(window))
@@ -169,8 +191,7 @@ private struct QuotaWarningThresholdField: View {
     let thresholds: () -> [Int]
     let setThresholds: ([Int]) -> Void
 
-    @State private var upperText: String = ""
-    @State private var lowerText: String = ""
+    @State private var usedText: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -179,31 +200,18 @@ private struct QuotaWarningThresholdField: View {
                     .font(.footnote.weight(.semibold))
                     .frame(width: 110, alignment: .leading)
 
-                Text(L("quota_warning_upper"))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                TextField("50", text: self.$upperText)
+                TextField("95", text: self.$usedText)
                     .textFieldStyle(.roundedBorder)
                     .font(.footnote)
                     .frame(width: 56)
-                    .onChange(of: self.upperText) { _, value in
-                        self.upperText = Self.filteredIntegerText(value)
+                    .onChange(of: self.usedText) { _, value in
+                        self.usedText = Self.filteredIntegerText(value)
                     }
                     .onSubmit { self.commit() }
 
-                Text(L("quota_warning_lower"))
+                Text("% used")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-
-                TextField("20", text: self.$lowerText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.footnote)
-                    .frame(width: 56)
-                    .onChange(of: self.lowerText) { _, value in
-                        self.lowerText = Self.filteredIntegerText(value)
-                    }
-                    .onSubmit { self.commit() }
 
                 Button(L("apply")) { self.commit() }
                     .controlSize(.small)
@@ -223,22 +231,22 @@ private struct QuotaWarningThresholdField: View {
     }
 
     private func commit() {
-        let sanitized = QuotaWarningThresholds.resolved(
-            upper: Self.integer(from: self.upperText),
-            lower: Self.integer(from: self.lowerText))
-        self.updateText(from: sanitized)
-        self.setThresholds(sanitized)
+        guard let used = Self.integer(from: self.usedText), (1...99).contains(used) else {
+            self.updateText(from: self.thresholds())
+            return
+        }
+        let remaining = QuotaWarningThresholds.clamped(100 - used)
+        self.setThresholds([remaining])
+        self.updateText(from: [remaining])
     }
 
     private func updateText(from thresholds: [Int]) {
-        let pair = Self.pair(from: thresholds)
-        self.upperText = pair.upper.map(String.init) ?? ""
-        self.lowerText = pair.lower.map(String.init) ?? ""
-    }
-
-    private static func pair(from thresholds: [Int]) -> (upper: Int?, lower: Int?) {
-        let sanitized = QuotaWarningThresholds.sanitized(thresholds)
-        return (sanitized.first, sanitized.dropFirst().first)
+        // Show the most urgent active warning as a used-percent.
+        if let remaining = QuotaWarningThresholds.active(thresholds).min() {
+            self.usedText = String(100 - remaining)
+        } else {
+            self.usedText = ""
+        }
     }
 
     private static func integer(from text: String) -> Int? {

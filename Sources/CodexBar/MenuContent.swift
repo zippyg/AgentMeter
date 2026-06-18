@@ -107,6 +107,7 @@ struct MenuContent: View {
     }
 
     private func perform(_ action: MenuDescriptor.MenuAction) {
+        if self.performPhoneBridgeAction(action) { return }
         switch action {
         case .refresh:
             self.actions.refresh()
@@ -141,15 +142,31 @@ struct MenuContent: View {
             self.actions.quit()
         case let .copyError(message):
             self.actions.copyError(message)
+        case .copyPhoneSnapshotPath,
+             .copyPhonePairingURL,
+             .resetPhonePairings,
+             .exportPhoneSnapshot,
+             .revealPhoneSnapshot:
+            return
+        }
+    }
+
+    private func performPhoneBridgeAction(_ action: MenuDescriptor.MenuAction) -> Bool {
+        switch action {
         case .copyPhoneSnapshotPath:
             self.actions.copyPhoneSnapshotPath()
         case .copyPhonePairingURL:
             self.actions.copyPhonePairingURL()
+        case .resetPhonePairings:
+            self.actions.resetPhonePairings()
         case .exportPhoneSnapshot:
             self.actions.exportPhoneSnapshot()
         case .revealPhoneSnapshot:
             self.actions.revealPhoneSnapshot()
+        default:
+            return false
         }
+        return true
     }
 }
 
@@ -169,6 +186,7 @@ struct MenuActions {
     let copyError: (String) -> Void
     let copyPhoneSnapshotPath: () -> Void
     let copyPhonePairingURL: () -> Void
+    let resetPhonePairings: () -> Void
     let exportPhoneSnapshot: () -> Void
     let revealPhoneSnapshot: () -> Void
 }

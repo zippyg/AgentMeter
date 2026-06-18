@@ -44,6 +44,36 @@ struct AgentMeterBridgeTokenStoreTests {
     }
 
     @Test
+    func `revoking paired devices removes per device and legacy tokens`() throws {
+        let suite = "AgentMeterBridgeTokenStoreTests-revoke-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryAgentMeterCredentialStore()
+        let legacyToken = try #require(AgentMeterBridgeTokenStore.loadOrCreate(store: store))
+        let first = try #require(AgentMeterBridgeTokenStore.createDeviceSecret(defaults: defaults, store: store))
+        let second = try #require(AgentMeterBridgeTokenStore.createDeviceSecret(defaults: defaults, store: store))
+
+        #expect(AgentMeterBridgeTokenStore.tokenForRequest(
+            deviceID: first.deviceID,
+            defaults: defaults,
+            store: store) == first.token)
+        #expect(AgentMeterBridgeTokenStore.revokeAllDevices(defaults: defaults, store: store) == 3)
+        #expect(AgentMeterBridgeTokenStore.tokenForRequest(
+            deviceID: first.deviceID,
+            defaults: defaults,
+            store: store) == nil)
+        #expect(AgentMeterBridgeTokenStore.tokenForRequest(
+            deviceID: second.deviceID,
+            defaults: defaults,
+            store: store) == nil)
+        #expect(AgentMeterBridgeTokenStore.tokenForRequest(
+            deviceID: nil,
+            defaults: defaults,
+            store: store) != legacyToken)
+    }
+
+    @Test
     func `pairing url includes per device id when provided`() throws {
         let url = try #require(AgentMeterBridgeTokenStore.pairingURL(
             serviceName: "AgentMeter Test Mac",

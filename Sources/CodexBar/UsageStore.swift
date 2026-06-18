@@ -264,6 +264,7 @@ final class UsageStore {
     @ObservationIgnored var lastKnownSessionRemaining: [UsageProvider: Double] = [:]
     @ObservationIgnored var lastKnownSessionWindowSource: [UsageProvider: SessionQuotaWindowSource] = [:]
     @ObservationIgnored var quotaWarningState: [QuotaWarningStateKey: QuotaWarningState] = [:]
+    @ObservationIgnored var rateLimitLastUsedPercent: [UsageProvider: Double] = [:]
     @ObservationIgnored var lastPermissionPromptNotificationAt: [UsageProvider: Date] = [:]
     @ObservationIgnored var lastTokenFetchAt: [UsageProvider: Date] = [:]
     @ObservationIgnored var lastTokenFetchScope: [UsageProvider: String] = [:]

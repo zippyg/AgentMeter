@@ -420,22 +420,45 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
     }
 
     @objc func copyPhonePairingURL(_: NSMenuItem) {
-        guard let secret = AgentMeterBridgeTokenStore.createPairingSecret(),
-              let url = AgentMeterBridgeTokenStore.pairingURL(
-                  serviceName: AgentMeterBridgeTokenStore.serviceName(),
-                  token: secret.token,
-                  deviceID: secret.deviceID,
-                  directHost: AgentMeterBridgeRuntimeStore.bestHost(),
-                  directPort: AgentMeterBridgeRuntimeStore.activePort())
+        guard let activePort = AgentMeterBridgeRuntimeStore.activePort() else {
+            self.presentLoginAlert(
+                title: "iPhone bridge is not running",
+                message: "Enable the iPhone live bridge in AgentMeter settings, then try pairing again.")
+            return
+        }
+        guard let invitation = AgentMeterBridgePairingCoordinator.shared.createInvitation(
+            serviceName: AgentMeterBridgeTokenStore.serviceName(),
+            directHost: AgentMeterBridgeRuntimeStore.bestHost(),
+            directPort: activePort)
         else {
             self.presentLoginAlert(
-                title: "Could not create pairing URL",
-                message: "AgentMeter could not access its bridge token in Keychain.")
+                title: "Could not start phone pairing",
+                message: "AgentMeter could not create a secure pairing session.")
             return
         }
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(url.absoluteString, forType: .string)
+        pb.setString(invitation.url.absoluteString, forType: .string)
+        self.presentLoginAlert(
+            title: "Pair iPhone with AgentMeter",
+            message: """
+            The secure pairing link has been copied.
+
+            Open it on your iPhone, then enter this one-time code:
+
+            \(invitation.displayCode)
+
+            The code expires in 10 minutes. The link does not contain your bridge token.
+            """)
+    }
+
+    @objc func resetPhonePairings(_: NSMenuItem) {
+        let count = AgentMeterBridgeTokenStore.revokeAllDevices()
+        self.presentLoginAlert(
+            title: "Paired phones reset",
+            message: count == 0
+                ? "No paired phone tokens were found."
+                : "Removed \(count) paired phone token\(count == 1 ? "" : "s").")
     }
 
     @objc func exportPhoneSnapshot(_: NSMenuItem) {

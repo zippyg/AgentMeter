@@ -321,7 +321,7 @@ public enum AgentMeterBridgeTokenStore {
     public static func loadOrCreate(store: any AgentMeterCredentialStoring = AgentMeterKeychainCredentialStore())
         -> String?
     {
-        let reference = AgentMeterCredentialReference(account: Self.account, label: "AgentMeter iPhone bridge")
+        let reference = Self.legacyReference()
         if let existing = try? store.load(reference: reference), Self.isValidToken(existing) {
             return existing
         }
@@ -339,7 +339,16 @@ public enum AgentMeterBridgeTokenStore {
         store: any AgentMeterCredentialStoring = AgentMeterKeychainCredentialStore())
         -> PairingSecret?
     {
-        let deviceID = UUID().uuidString.lowercased()
+        self.createDeviceSecret(defaults: defaults, store: store)
+    }
+
+    public static func createDeviceSecret(
+        deviceID rawDeviceID: String? = nil,
+        defaults: UserDefaults = .standard,
+        store: any AgentMeterCredentialStoring = AgentMeterKeychainCredentialStore())
+        -> PairingSecret?
+    {
+        let deviceID = rawDeviceID.flatMap(Self.normalizedDeviceID) ?? UUID().uuidString.lowercased()
         let token = Self.makeToken()
         do {
             try store.store(token, for: Self.deviceReference(deviceID: deviceID))
@@ -371,6 +380,23 @@ public enum AgentMeterBridgeTokenStore {
             return nil
         }
         return token
+    }
+
+    @discardableResult
+    public static func revokeAllDevices(
+        defaults: UserDefaults = .standard,
+        store: any AgentMeterCredentialStoring = AgentMeterKeychainCredentialStore())
+        -> Int
+    {
+        let legacyReference = Self.legacyReference()
+        let legacyToken = try? store.load(reference: legacyReference)
+        try? store.delete(reference: legacyReference)
+        let deviceIDs = Self.pairedDeviceIDs(defaults: defaults)
+        for deviceID in deviceIDs {
+            try? store.delete(reference: Self.deviceReference(deviceID: deviceID))
+        }
+        Self.savePairedDeviceIDs([], defaults: defaults)
+        return deviceIDs.count + ((legacyToken.map(Self.isValidToken) ?? false) ? 1 : 0)
     }
 
     public static func pairingURL(
@@ -417,6 +443,10 @@ public enum AgentMeterBridgeTokenStore {
 
     private static func savePairedDeviceIDs(_ deviceIDs: Set<String>, defaults: UserDefaults) {
         defaults.set(deviceIDs.sorted(), forKey: self.pairedDeviceIDsKey)
+    }
+
+    private static func legacyReference() -> AgentMeterCredentialReference {
+        AgentMeterCredentialReference(account: self.account, label: "AgentMeter iPhone bridge")
     }
 
     private static func deviceReference(deviceID: String) -> AgentMeterCredentialReference {

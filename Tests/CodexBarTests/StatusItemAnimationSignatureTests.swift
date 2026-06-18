@@ -427,6 +427,62 @@ struct StatusItemAnimationSignatureTests {
     }
 
     @Test
+    func `merged icon signature includes mascot mood`() throws {
+        let suite = "StatusItemAnimationSignatureTests-merged-mascot-mood"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: testConfigStore(suiteName: suite),
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        settings.statusChecksEnabled = false
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = true
+        settings.selectedMenuProvider = .codex
+        settings.menuBarShowsBrandIconWithPercent = false
+
+        let registry = ProviderRegistry.shared
+        if let codexMeta = registry.metadata[.codex] {
+            settings.setProviderEnabled(provider: .codex, metadata: codexMeta, enabled: true)
+        }
+        if let claudeMeta = registry.metadata[.claude] {
+            settings.setProviderEnabled(provider: .claude, metadata: claudeMeta, enabled: true)
+        }
+
+        let fetcher = UsageFetcher()
+        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: self.makeStatusBarForTesting())
+        defer { controller.releaseStatusItemsForTesting() }
+
+        func snapshot(usedPercent: Double) -> UsageSnapshot {
+            UsageSnapshot(
+                primary: RateWindow(usedPercent: usedPercent, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
+                secondary: nil,
+                updatedAt: Date())
+        }
+
+        store._setSnapshotForTesting(snapshot(usedPercent: 20), provider: .codex)
+        store._setSnapshotForTesting(snapshot(usedPercent: 30), provider: .claude)
+        controller.applyIcon(phase: nil)
+        let happySignature = try #require(controller.lastAppliedMergedIconRenderSignature)
+        #expect(happySignature.contains("mood=happy"))
+
+        store._setSnapshotForTesting(snapshot(usedPercent: 95), provider: .codex)
+        store._setSnapshotForTesting(snapshot(usedPercent: 30), provider: .claude)
+        controller.applyIcon(phase: nil)
+        let sadSignature = try #require(controller.lastAppliedMergedIconRenderSignature)
+        #expect(sadSignature.contains("mood=sad"))
+        #expect(sadSignature != happySignature)
+    }
+
+    @Test
     func `split provider icon skips unchanged render signature`() throws {
         let suite = "StatusItemAnimationSignatureTests-split-provider-signature"
         let defaults = try #require(UserDefaults(suiteName: suite))
