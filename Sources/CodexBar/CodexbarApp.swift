@@ -383,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let confettiOverlayController = ScreenConfettiOverlayController()
     private let confettiLogger = CodexBarLog.logger(LogCategories.confetti)
     private var statusController: StatusItemControlling?
+    private var touchBarController: UsageTouchBarController?
     private var store: UsageStore?
     private var settings: SettingsStore?
     private var account: AccountInfo?
@@ -416,6 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppNotifications.shared.requestAuthorizationOnStartup()
         }
         self.scheduleStatusControllerStartup()
+        self.installUsageTouchBar()
         self.configureLiveSyncServer()
         KeyboardShortcuts.onKeyUp(for: .openMenu) { [weak self] in
             // KeyboardShortcuts dispatches both normal and menu-tracking hotkeys on the main event loop.
@@ -468,6 +470,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleAgentMeterBridgeEnabledDidChange(_ notification: Notification) {
         self.configureLiveSyncServer()
+    }
+
+    private func installUsageTouchBar() {
+        guard self.touchBarController == nil else { return }
+        guard !SettingsStore.isRunningTests else { return }
+        guard let store, let settings else { return }
+        let controller = UsageTouchBarController(store: store, settings: settings)
+        controller.install()
+        self.touchBarController = controller
     }
 
     private func configureLiveSyncServer() {

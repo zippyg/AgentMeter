@@ -31,7 +31,7 @@ struct AgentMeterMenuSummaryModel: Equatable {
         }
     }
 
-    static let providerOrder: [UsageProvider] = [.claude, .codex]
+    static let providerOrder: [UsageProvider] = [.claude, .codex, .cursor]
 
     let generatedLine: String
     let rows: [Row]
@@ -40,9 +40,13 @@ struct AgentMeterMenuSummaryModel: Equatable {
         self.generatedLine = UsageFormatter.updatedString(from: snapshot.generatedAt, now: now)
         let byID = Dictionary(uniqueKeysWithValues: snapshot.providers.map { ($0.id, $0) })
         self.rows = Self.providerOrder.compactMap { provider in
-            byID[provider.rawValue].map { providerSnapshot in
-                Self.row(provider: provider, snapshot: providerSnapshot, now: now)
-            }
+            guard let providerSnapshot = byID[provider.rawValue] else { return nil }
+            // Hide providers that are simply not configured (e.g. Cursor before it is
+            // enabled) so the summary card does not show empty "unavailable" rows.
+            guard !providerSnapshot.windows.isEmpty
+                || providerSnapshot.status != .unavailable
+            else { return nil }
+            return Self.row(provider: provider, snapshot: providerSnapshot, now: now)
         }
     }
 
@@ -171,6 +175,8 @@ struct AgentMeterMenuSummaryModel: Equatable {
             "sparkles"
         case .codex:
             "terminal"
+        case .cursor:
+            "cursorarrow.rays"
         default:
             "gauge.with.dots.needle.67percent"
         }
