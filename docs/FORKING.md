@@ -57,9 +57,9 @@ Apple-registered bundle id. The package script wraps the existing release binary
 
 ## 4. Release configuration
 
-Release automation can use an uncommitted local environment file with your own repo, signing
-identity / secret references, Sparkle public key, feed, and download URLs. Treat it as local
-config: it should not carry private key bytes, and source-only use does not need it.
+`.mac-release.env` ships the upstream defaults and must be replaced with your own (repo,
+signing identity / secret references, Sparkle public key, feed and download URLs). Treat it
+as local config: it should not carry private key bytes. For source-only use you can delete it.
 
 ## 5. Display name and icons
 

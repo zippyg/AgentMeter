@@ -30,6 +30,23 @@ struct MenuBarVisibilityWatcherTests {
     }
 
     @Test
+    func `stale screen attachment is not materialized`() {
+        let snapshot = StatusItemVisibilitySnapshot(
+            isVisible: true,
+            hasButton: true,
+            hasWindow: true,
+            hasScreen: true,
+            isOnCurrentScreen: false,
+            isInMenuExtraRegion: true,
+            buttonWidth: 24)
+
+        #expect(!MenuBarVisibilityWatcher.statusItemAppearsMaterialized(snapshot))
+        #expect(MenuBarVisibilityWatcher.shouldAttemptStatusItemRecovery(
+            snapshot: snapshot,
+            allowsDisplacedWindowRecovery: true))
+    }
+
+    @Test
     func `windowless item is not treated as materialized so real recovery still runs`() {
         let snapshot = StatusItemVisibilitySnapshot(
             isVisible: true,
@@ -42,7 +59,7 @@ struct MenuBarVisibilityWatcherTests {
     }
 
     @Test
-    func `item outside the menu-extra region is not treated as materialized`() {
+    func `displaced item with a backing window is not materialized`() {
         let snapshot = StatusItemVisibilitySnapshot(
             isVisible: true,
             hasButton: true,
@@ -52,6 +69,135 @@ struct MenuBarVisibilityWatcherTests {
             buttonWidth: 24)
 
         #expect(!MenuBarVisibilityWatcher.statusItemAppearsMaterialized(snapshot))
+    }
+
+    @Test
+    func `bounded recovery can repair a displaced backing window`() {
+        let snapshot = StatusItemVisibilitySnapshot(
+            isVisible: true,
+            hasButton: true,
+            hasWindow: true,
+            hasScreen: true,
+            isInMenuExtraRegion: false,
+            buttonWidth: 24)
+
+        #expect(MenuBarVisibilityWatcher.shouldAttemptStatusItemRecovery(
+            snapshot: snapshot,
+            allowsDisplacedWindowRecovery: true))
+    }
+
+    @Test
+    func `bounded recovery leaves a detached backing window for system guidance`() {
+        let snapshot = StatusItemVisibilitySnapshot(
+            isVisible: true,
+            hasButton: true,
+            hasWindow: true,
+            hasScreen: false,
+            isOnCurrentScreen: false,
+            isInMenuExtraRegion: false,
+            buttonWidth: 76,
+            windowHeight: 22)
+
+        #expect(!MenuBarVisibilityWatcher.shouldAttemptStatusItemRecovery(
+            snapshot: snapshot,
+            allowsDisplacedWindowRecovery: true))
+    }
+
+    @Test
+    func `bounded recovery leaves a zero height Tahoe proxy for system guidance`() {
+        let snapshot = StatusItemVisibilitySnapshot(
+            isVisible: true,
+            hasButton: true,
+            hasWindow: true,
+            hasScreen: true,
+            isOnCurrentScreen: true,
+            isInMenuExtraRegion: false,
+            buttonWidth: 76,
+            windowHeight: 0)
+
+        #expect(!MenuBarVisibilityWatcher.shouldAttemptStatusItemRecovery(
+            snapshot: snapshot,
+            allowsDisplacedWindowRecovery: true))
+    }
+
+    @Test
+    func `watchdog recovery cannot recreate a displaced backing window`() {
+        let snapshot = StatusItemVisibilitySnapshot(
+            isVisible: true,
+            hasButton: true,
+            hasWindow: true,
+            hasScreen: true,
+            isInMenuExtraRegion: false,
+            buttonWidth: 24)
+
+        #expect(!MenuBarVisibilityWatcher.shouldAttemptStatusItemRecovery(
+            snapshot: snapshot,
+            allowsDisplacedWindowRecovery: false))
+    }
+
+    @Test
+    func `watchdog recovery still repairs genuine window loss`() {
+        let snapshot = StatusItemVisibilitySnapshot(
+            isVisible: true,
+            hasButton: true,
+            hasWindow: false,
+            hasScreen: false,
+            isInMenuExtraRegion: false,
+            buttonWidth: 24)
+
+        #expect(MenuBarVisibilityWatcher.shouldAttemptStatusItemRecovery(
+            snapshot: snapshot,
+            allowsDisplacedWindowRecovery: false))
+    }
+
+    @Test
+    func `AppKit displacement remains a recovery candidate when CoreGraphics sees a named window`() {
+        let name = "com.zain.agentmeter.menu"
+        let window = MenuBarStatusItemWindowSnapshot(
+            name: name,
+            ownerName: "Control Center",
+            bounds: CGRect(x: 1882, y: 1058, width: 38, height: 22),
+            isOnscreen: true,
+            displayBounds: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let snapshot = StatusItemVisibilitySnapshot(
+            isVisible: true,
+            hasButton: true,
+            hasWindow: true,
+            hasScreen: true,
+            isInMenuExtraRegion: false,
+            buttonWidth: 24)
+
+        #expect(MenuBarVisibilityWatcher.recoveryAutosaveNames(
+            visibleAutosaveNames: [name],
+            windowSnapshots: [window],
+            mergedAutosaveName: name,
+            mergedSnapshot: snapshot,
+            allowsDisplacedWindowRecovery: true) == [name])
+    }
+
+    @Test
+    func `Tahoe blocked proxy is routed to guidance instead of destructive recovery`() {
+        let name = "com.zain.agentmeter.menu"
+        let window = MenuBarStatusItemWindowSnapshot(
+            name: name,
+            ownerName: "Control Center",
+            bounds: CGRect(x: 0, y: -22, width: 76, height: 22),
+            isOnscreen: true,
+            displayBounds: nil)
+        let snapshot = StatusItemVisibilitySnapshot(
+            isVisible: true,
+            hasButton: true,
+            hasWindow: true,
+            hasScreen: true,
+            isInMenuExtraRegion: false,
+            buttonWidth: 24)
+
+        #expect(MenuBarVisibilityWatcher.recoveryAutosaveNames(
+            visibleAutosaveNames: [name],
+            windowSnapshots: [window],
+            mergedAutosaveName: name,
+            mergedSnapshot: snapshot,
+            allowsDisplacedWindowRecovery: true).isEmpty)
     }
 
     @Test
@@ -117,15 +263,27 @@ struct MenuBarVisibilityWatcherTests {
     }
 
     @Test
-    func `menu extra region accepts item pinned against right screen edge`() {
+    func `menu extra region rejects Control Center parking at right display edge`() {
         let screenFrame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
 
-        #expect(MenuBarVisibilityWatcher.isFrameInVisibleMenuExtraRegion(
+        #expect(!MenuBarVisibilityWatcher.isFrameInVisibleMenuExtraRegion(
             frame: CGRect(x: 1892, y: 1058, width: 28, height: 22),
+            screenFrame: screenFrame))
+        #expect(!MenuBarVisibilityWatcher.isFrameInVisibleMenuExtraRegion(
+            frame: CGRect(x: 1882, y: 1058, width: 38, height: 22),
             screenFrame: screenFrame))
         #expect(MenuBarVisibilityWatcher.isFrameInVisibleMenuExtraRegion(
             frame: CGRect(x: 1760, y: 1058, width: 28, height: 22),
             screenFrame: screenFrame))
+    }
+
+    @Test
+    func `menu extra region rejects Control Center parking at left display edge`() {
+        let leftScreen = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+
+        #expect(!MenuBarVisibilityWatcher.isFrameInVisibleMenuExtraRegion(
+            frame: CGRect(x: -1920, y: 1058, width: 38, height: 22),
+            screenFrame: leftScreen))
     }
 
     @Test
@@ -352,7 +510,7 @@ struct MenuBarVisibilityWatcherTests {
     }
 
     @Test
-    func `allows edge placed live item`() {
+    func `classifies edge placed live item as displaced`() {
         let snapshot = StatusItemVisibilitySnapshot(
             isVisible: true,
             hasButton: true,
@@ -365,7 +523,8 @@ struct MenuBarVisibilityWatcherTests {
             buttonWidth: 18)
 
         #expect(!MenuBarVisibilityWatcher.isBlockedSnapshot(snapshot: snapshot))
-        #expect(!MenuBarVisibilityWatcher.isDisplacedSnapshot(snapshot: snapshot))
+        #expect(MenuBarVisibilityWatcher.isDisplacedSnapshot(snapshot: snapshot))
+        #expect(MenuBarVisibilityWatcher.hasAnySystemBlockCandidate(snapshots: [snapshot]))
     }
 
     @Test

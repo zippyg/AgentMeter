@@ -391,6 +391,7 @@ extension UsageStore {
         bypassCoalescing: Bool = false,
         allowCodexUsageBackfill: Bool = true) async
     {
+        guard self.sessionIsActive else { return }
         self.syncOpenAIWebState()
         guard self.isEnabled(.codex),
               self.settings.openAIWebAccessEnabled,
@@ -445,6 +446,7 @@ extension UsageStore {
             force: force)
         let task = Task { [weak self] in
             guard let self else { return }
+            guard self.sessionIsActive else { return }
             await self.performOpenAIDashboardRefreshIfNeeded(context)
         }
         self.openAIDashboardRefreshTask = task
@@ -459,6 +461,7 @@ extension UsageStore {
     }
 
     func scheduleOpenAIDashboardRefreshIfNeeded(expectedGuard: CodexAccountScopedRefreshGuard? = nil) {
+        guard self.sessionIsActive else { return }
         self.syncOpenAIWebState()
         let allowCurrentSnapshotFallback = expectedGuard?.source == .liveSystem && expectedGuard?
             .identity == .unresolved
@@ -489,14 +492,17 @@ extension UsageStore {
                 }
             }
 
+            guard self.sessionIsActive else { return }
             await self.refreshOpenAIDashboardIfNeeded(force: false, expectedGuard: expectedGuard)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self.sessionIsActive else { return }
             self.persistWidgetSnapshot(reason: "dashboard")
         }
     }
 
     private func performOpenAIDashboardRefreshIfNeeded(_ context: OpenAIDashboardRefreshContext) async {
-        guard self.shouldContinueOpenAIDashboardRefresh(token: context.refreshTaskToken) else { return }
+        guard self.sessionIsActive,
+              self.shouldContinueOpenAIDashboardRefresh(token: context.refreshTaskToken)
+        else { return }
         self.openAIDashboardCookieImportStatus = nil
         var latestCookieImportStatus: String?
         if self.openAIWebDebugLines.isEmpty {
@@ -967,7 +973,7 @@ extension UsageStore {
     }
 
     private func shouldContinueOpenAIDashboardRefresh(token: UUID?) -> Bool {
-        !Task.isCancelled && self.shouldApplyOpenAIDashboardRefreshTask(token: token)
+        !Task.isCancelled && self.sessionIsActive && self.shouldApplyOpenAIDashboardRefreshTask(token: token)
     }
 
     func invalidateOpenAIDashboardRefreshTask() {

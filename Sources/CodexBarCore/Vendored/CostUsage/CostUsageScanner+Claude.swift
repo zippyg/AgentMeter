@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 extension CostUsageScanner {
@@ -24,12 +25,16 @@ extension CostUsageScanner {
         var unresolved = false
     }
 
-    private static func defaultClaudeProjectsRoots(options: Options) -> [URL] {
+    static func defaultClaudeProjectsRoots(
+        options: Options,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> [URL]
+    {
         if let override = options.claudeProjectsRoots { return override }
 
         var roots: [URL] = []
 
-        if let env = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]?
+        if let env = environment["CLAUDE_CONFIG_DIR"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !env.isEmpty
         {
@@ -44,12 +49,91 @@ extension CostUsageScanner {
                 }
             }
         } else {
-            let home = FileManager.default.homeDirectoryForCurrentUser
             roots.append(home.appendingPathComponent(".config/claude/projects", isDirectory: true))
             roots.append(home.appendingPathComponent(".claude/projects", isDirectory: true))
         }
 
+        let seats = home.appendingPathComponent(".claude-swap-backup/sessions", isDirectory: true)
+        let directories = (try? FileManager.default.contentsOfDirectory(
+            at: seats, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        for seat in directories.sorted(by: { $0.path < $1.path }) {
+            let projects = seat.appendingPathComponent("projects", isDirectory: true)
+            if (try? projects.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                roots.append(projects)
+            }
+        }
         return roots
+    }
+
+    /// "slot:<n>" for a transcript under ~/.claude-swap-backup/sessions/<n>-<name>/projects.
+    static func claudeSwapSlotAccount(fileURL: URL) -> String? {
+        let parts = fileURL.pathComponents
+        guard let index = parts.firstIndex(of: "sessions"), index > 0,
+              parts[index - 1] == ".claude-swap-backup", index + 1 < parts.count,
+              let slot = parts[index + 1].split(separator: "-").first.flatMap({ Int($0) }), slot > 0
+        else { return nil }
+        return "slot:\(slot)"
+    }
+
+    /// The account id from a session-owner or bridge-session line. Only the id is kept.
+    static func claudeAccountMarker(_ bytes: Data) -> String? {
+        guard let obj = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] else { return nil }
+        let raw = obj["accountUuid"] as? String ?? obj["ownerAccountUuid"] as? String
+        guard let raw, raw.count <= 64,
+              raw.range(of: "^[0-9A-Fa-f-]{8,64}$", options: .regularExpression) != nil else { return nil }
+        // A one-way fingerprint, so the per-user export carries no account id. Each user maps it
+        // back to a claude-swap slot from their own account list.
+        return Self.claudeAccountKey(uuid: raw)
+    }
+
+    /// claude-swap's switch history: (when, slot now active), oldest first, from its own log's
+    /// "Switched from account X to Y" lines. Used only for rows whose transcript names no account.
+    static func claudeSwapTimeline(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [(at: Int64, slot: Int)]
+    {
+        let url = home.appendingPathComponent(".claude-swap-backup/claude-swap.log")
+        // Python's RotatingFileHandler uses .1 for the newest backup. Missing rotations are OK.
+        return (0...9).reversed().flatMap { rotation -> [(at: Int64, slot: Int)] in
+            let file = rotation == 0 ? url : url.appendingPathExtension(String(rotation))
+            guard let data = try? Data(contentsOf: file, options: .mappedIfSafe), data.count <= 64 * 1024 * 1024,
+                  let text = String(data: data, encoding: .utf8) else { return [] }
+            return self.parseClaudeSwapTimeline(text)
+        }.sorted { $0.at < $1.at }
+    }
+
+    static func parseClaudeSwapTimeline(_ text: String, timeZone: TimeZone = .current) -> [(at: Int64, slot: Int)] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        var timeline: [(at: Int64, slot: Int)] = []
+        for line in text.split(separator: "\n") where line.contains("Switched from account ") {
+            guard line.count > 19, let date = formatter.date(from: String(line.prefix(19))),
+                  let range = line.range(of: "Switched from account "),
+                  case let parts = line[range.upperBound...].split(separator: " "),
+                  parts.count >= 3, parts[1] == "to",
+                  Int(parts[0]) != nil, let to = Int(parts[2].trimmingCharacters(in: .whitespaces))
+            else { continue }
+            let at = Int64(date.timeIntervalSince1970 * 1000)
+            timeline.append((at: at, slot: to))
+        }
+        return timeline.sorted { $0.at < $1.at }
+    }
+
+    /// The slot active at a moment, or nil when the timeline is empty.
+    static func claudeSwapSlot(at unixMs: Int64, timeline: [(at: Int64, slot: Int)]) -> String? {
+        guard !timeline.isEmpty else { return nil }
+        var low = 0, high = timeline.count - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if timeline[mid].at <= unixMs { low = mid } else { high = mid - 1 }
+        }
+        return timeline[low].at <= unixMs ? "slot:\(timeline[low].slot)" : nil
+    }
+
+    public static func claudeAccountKey(uuid: String) -> String {
+        let digest = SHA256.hash(data: Data(uuid.lowercased().utf8))
+        return "acct:" + digest.prefix(6).map { String(format: "%02x", $0) }.joined()
     }
 
     static func parseClaudeFile(
@@ -68,7 +152,8 @@ extension CostUsageScanner {
                 startOffset: startOffset,
                 modelsDevCatalog: modelsDevCatalog,
                 modelsDevCacheRoot: modelsDevCacheRoot,
-                checkCancellation: nil)) ?? ClaudeParseResult(days: [:], rows: [], parsedBytes: startOffset)
+                checkCancellation: nil))
+            ?? ClaudeParseResult(days: [:], rows: [], parsedBytes: startOffset, finalAccount: nil)
     }
 
     static func parseClaudeFileCancellable(
@@ -78,6 +163,7 @@ extension CostUsageScanner {
         startOffset: Int64 = 0,
         modelsDevCatalog: ModelsDevCatalog? = nil,
         modelsDevCacheRoot: URL? = nil,
+        initialAccount: String? = nil,
         checkCancellation: CancellationCheck? = nil) throws -> ClaudeParseResult
     {
         func add(dayKey: String, model: String, tokens: ClaudeTokens, days: inout [String: [String: [Int]]]) {
@@ -110,6 +196,9 @@ extension CostUsageScanner {
         }
 
         let pathRole = Self.claudePathRole(fileURL: fileURL)
+        // The account a row ran under: the latest account marker seen in this file, else the
+        // claude-swap home the file lives in. Markers change mid-file when the login is switched.
+        var currentAccount = initialAccount ?? Self.claudeSwapSlotAccount(fileURL: fileURL)
         var keyedRows: [String: ClaudeUsageRow] = [:]
         var unkeyedRows: [ClaudeUsageRow] = []
 
@@ -129,6 +218,12 @@ extension CostUsageScanner {
                 onLine: { line in
                     guard !line.bytes.isEmpty else { return }
                     guard !line.wasTruncated else { return }
+                    if line.bytes.containsAscii(#"ccountUuid""#),
+                       !line.bytes.containsAscii(#""type":"assistant""#)
+                    {
+                        if let account = Self.claudeAccountMarker(line.bytes) { currentAccount = account }
+                        return
+                    }
                     guard line.bytes.containsAscii(#""type":"assistant""#) else { return }
                     guard line.bytes.containsAscii(#""usage""#) else { return }
 
@@ -185,7 +280,7 @@ extension CostUsageScanner {
                         else { return }
 
                         let messageId = message["id"] as? String
-                        let requestId = obj["requestId"] as? String
+                        let requestId = obj["requestId"] as? String ?? obj["request_id"] as? String
                         let sessionId = obj["sessionId"] as? String
                             ?? obj["session_id"] as? String
                             ?? (obj["metadata"] as? [String: Any])?["sessionId"] as? String
@@ -206,12 +301,11 @@ extension CostUsageScanner {
                             cacheCreate1h: tokens.cacheCreate1h,
                             output: tokens.output,
                             costNanos: tokens.costNanos,
-                            costPriced: tokens.costPriced)
+                            costPriced: tokens.costPriced,
+                            account: currentAccount)
 
-                        // Streaming chunks share message.id + requestId inside a file.
-                        // Keep overwriting so the final cumulative chunk wins.
-                        if let messageId, let requestId {
-                            let key = "\(messageId):\(requestId)"
+                        // Keep the final cumulative streaming chunk for each identified message.
+                        if let key = Self.claudeInFileKey(row) {
                             keyedRows[key] = row
                         } else {
                             // Older logs omit IDs; treat each line as distinct to avoid dropping usage.
@@ -239,7 +333,7 @@ extension CostUsageScanner {
             add(dayKey: row.dayKey, model: row.model, tokens: tokens, days: &days)
         }
 
-        return ClaudeParseResult(days: days, rows: rows, parsedBytes: parsedBytes)
+        return ClaudeParseResult(days: days, rows: rows, parsedBytes: parsedBytes, finalAccount: currentAccount)
     }
 
     private static func claudeOneHourCacheCreationTokens(usage: [String: Any], total: Int) -> Int {
@@ -253,10 +347,11 @@ extension CostUsageScanner {
     }
 
     private static func claudeCanonicalRowKey(_ row: ClaudeUsageRow) -> String? {
-        guard let messageId = row.messageId, let requestId = row.requestId else {
-            return nil
-        }
-        return "\(messageId):\(requestId)"
+        guard let messageId = row.messageId else { return nil }
+        // Copied fork history keeps request IDs even when the session ID changes.
+        if let requestId = row.requestId { return "request:\(messageId):\(requestId)" }
+        if let sessionId = row.sessionId { return "session:\(sessionId):\(messageId)" }
+        return nil
     }
 
     private static func mergeClaudeRows(existing: [ClaudeUsageRow], delta: [ClaudeUsageRow]) -> [ClaudeUsageRow] {
@@ -282,8 +377,7 @@ extension CostUsageScanner {
     }
 
     private static func claudeInFileKey(_ row: ClaudeUsageRow) -> String? {
-        guard let messageId = row.messageId, let requestId = row.requestId else { return nil }
-        return "\(messageId):\(requestId)"
+        Self.claudeCanonicalRowKey(row)
     }
 
     private static func claudeRowWins(
@@ -302,13 +396,28 @@ extension CostUsageScanner {
     private static func reconciledClaudeRows(cache: CostUsageCache) -> [ClaudeUsageRow] {
         var rows: [ClaudeUsageRow] = []
         var winners: [String: (path: String, row: ClaudeUsageRow)] = [:]
+        var sessionRequests: [String: Set<String>] = [:]
+        for file in cache.files.values {
+            for row in file.claudeRows ?? [] {
+                if row.requestId != nil, let sessionId = row.sessionId, let messageId = row.messageId,
+                   let key = Self.claudeCanonicalRowKey(row)
+                {
+                    sessionRequests["session:\(sessionId):\(messageId)", default: []].insert(key)
+                }
+            }
+        }
 
         for path in cache.files.keys.sorted() {
             guard let fileRows = cache.files[path]?.claudeRows else { continue }
             for row in fileRows {
-                guard let canonicalKey = Self.claudeCanonicalRowKey(row) else {
+                guard var canonicalKey = Self.claudeCanonicalRowKey(row) else {
                     rows.append(row)
                     continue
+                }
+                if row.requestId == nil, let requests = sessionRequests[canonicalKey], requests.count == 1,
+                   let requestKey = requests.first
+                {
+                    canonicalKey = requestKey
                 }
                 let candidate = (path: path, row: row)
                 if let existing = winners[canonicalKey] {
@@ -350,14 +459,17 @@ extension CostUsageScanner {
         mtimeMs: Int64,
         size: Int64,
         rows: [ClaudeUsageRow],
-        parsedBytes: Int64?) -> CostUsageFileUsage
+        parsedBytes: Int64?,
+        finalAccount: String?) -> CostUsageFileUsage
     {
-        makeFileUsage(
+        var usage = makeFileUsage(
             mtimeUnixMs: mtimeMs,
             size: size,
             days: [:],
             parsedBytes: parsedBytes,
             claudeRows: rows)
+        usage.finalClaudeAccount = finalAccount
+        return usage
     }
 
     private static let vertexProviderKeys: Set<String> = [
@@ -396,7 +508,7 @@ extension CostUsageScanner {
         {
             return true
         }
-        if let requestId = obj["requestId"] as? String,
+        if let requestId = obj["requestId"] as? String ?? obj["request_id"] as? String,
            requestId.contains("_vrtx_")
         {
             return true
@@ -485,6 +597,7 @@ extension CostUsageScanner {
     private final class ClaudeScanState {
         var cache: CostUsageCache
         var touched: Set<String>
+        var fileIdentities: Set<String> = []
         let range: CostUsageDayRange
         let providerFilter: ClaudeLogProviderFilter
         let forceFullScan: Bool
@@ -520,6 +633,11 @@ extension CostUsageScanner {
     {
         try state.checkCancellation?()
         let path = url.path
+        if let identity = Self.codexFileMetadata(fileURL: url).fileId,
+           !state.fileIdentities.insert(identity).inserted
+        {
+            return
+        }
         state.touched.insert(path)
 
         if let cached = state.cache.files[path],
@@ -542,13 +660,15 @@ extension CostUsageScanner {
                     startOffset: startOffset,
                     modelsDevCatalog: state.modelsDevCatalog,
                     modelsDevCacheRoot: state.modelsDevCacheRoot,
+                    initialAccount: cached.finalClaudeAccount,
                     checkCancellation: state.checkCancellation)
                 let mergedRows = Self.mergeClaudeRows(existing: cached.claudeRows ?? [], delta: delta.rows)
                 state.cache.files[path] = Self.makeClaudeFileUsage(
                     mtimeMs: mtimeMs,
                     size: size,
                     rows: mergedRows,
-                    parsedBytes: delta.parsedBytes)
+                    parsedBytes: delta.parsedBytes,
+                    finalAccount: delta.finalAccount)
                 return
             }
         }
@@ -564,7 +684,8 @@ extension CostUsageScanner {
             mtimeMs: mtimeMs,
             size: size,
             rows: parsed.rows,
-            parsedBytes: parsed.parsedBytes)
+            parsedBytes: parsed.parsedBytes,
+            finalAccount: parsed.finalAccount)
         state.cache.files[path] = usage
     }
 
@@ -715,6 +836,9 @@ extension CostUsageScanner {
         var costSeen = false
         let costScale = 1_000_000_000.0
         var repricedCosts: [ClaudeDayModelKey: ClaudeRepricedCost] = [:]
+        // day -> account -> (tokens, cost); rows with no account land under "unknown".
+        var accountDays: [String: [String: (tokens: Int, cost: Double)]] = [:]
+        let timeline = Self.claudeSwapTimeline()
 
         for row in Self.reconciledClaudeRows(cache: cache) {
             let key = ClaudeDayModelKey(day: row.dayKey, model: row.model)
@@ -748,6 +872,14 @@ extension CostUsageScanner {
                 aggregate.unresolved = true
             }
             repricedCosts[key] = aggregate
+            var accounts = accountDays[row.dayKey] ?? [:]
+            let account = row.account
+                ?? row.timestampUnixMs.flatMap { Self.claudeSwapSlot(at: $0, timeline: timeline) }
+                ?? "unknown"
+            let previous = accounts[account] ?? (0, 0)
+            let tokens = row.input + row.cacheRead + row.cacheCreate + row.output
+            accounts[account] = (previous.tokens + tokens, previous.cost + (cost ?? 0))
+            accountDays[row.dayKey] = accounts
         }
 
         let dayKeys = cache.days.keys.sorted().filter {
@@ -816,7 +948,10 @@ extension CostUsageScanner {
                 totalTokens: dayTotal,
                 costUSD: entryCost,
                 modelsUsed: modelNames,
-                modelBreakdowns: sortedBreakdown))
+                modelBreakdowns: sortedBreakdown,
+                accountBreakdowns: (accountDays[day] ?? [:]).sorted { $0.key < $1.key }.map {
+                    .init(modelName: $0.key, costUSD: $0.value.cost, totalTokens: $0.value.tokens)
+                }))
 
             totalInput += dayInput
             totalOutput += dayOutput

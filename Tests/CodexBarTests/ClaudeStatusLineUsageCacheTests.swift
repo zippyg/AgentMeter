@@ -14,6 +14,18 @@ struct ClaudeStatusLineUsageCacheTests {
           "five_hour": {"utilization": 34.0, "resets_at": "2026-06-15T12:00:00.000000+00:00"},
           "seven_day": {"utilization": 31.0, "resets_at": "2026-06-16T12:00:00.000000+00:00"},
           "seven_day_sonnet": {"utilization": 7.0, "resets_at": "2026-06-17T12:00:00.000000+00:00"},
+          "limits": [
+            {
+              "group": "weekly",
+              "percent": 17.0,
+              "resets_at": "2026-06-16T11:59:59.000000+00:00",
+              "scope": {
+                "model": {
+                  "display_name": "Fable"
+                }
+              }
+            }
+          ],
           "extra_usage": {"is_enabled": false}
         }
         """.utf8)
@@ -32,6 +44,9 @@ struct ClaudeStatusLineUsageCacheTests {
         #expect(snapshot.opus?.usedPercent == 7)
         #expect(snapshot.loginMethod == "Claude status-line cache")
         #expect(snapshot.updatedAt == now)
+        let fable = try #require(snapshot.extraRateWindows.first(where: { $0.id == "claude-fable" }))
+        #expect(fable.title == "Fable")
+        #expect(fable.window.usedPercent == 17)
     }
 
     @Test

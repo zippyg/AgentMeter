@@ -9,12 +9,13 @@ VERSION_FILE="${ROOT_DIR}/version.env"
 
 source "${ROOT_DIR}/Scripts/sparkle_signing_paths.sh"
 
-if [[ ! -f "${VERSION_FILE}" ]]; then
-  echo "ERROR: Missing ${VERSION_FILE}" >&2
-  exit 1
+# version.env is a maintainer-only release file, so a fresh public clone has none. Without it the
+# app is labelled with the 0.1.0-dev / build 1 defaults below, which is fine for a local build.
+if [[ -f "${VERSION_FILE}" ]]; then
+  source "${VERSION_FILE}"
+else
+  echo "NOTE: no ${VERSION_FILE}; labelling this local build ${MARKETING_VERSION:-0.1.0-dev} (${BUILD_NUMBER:-1})." >&2
 fi
-
-source "${VERSION_FILE}"
 
 binary="${BUILD_DIR}/AgentMeter"
 sparkle="${BUILD_DIR}/Sparkle.framework"

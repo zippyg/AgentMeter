@@ -59,7 +59,7 @@ public struct AgentMeterSnapshotProducer: Codable, Equatable, Sendable {
 }
 
 public struct AgentMeterSnapshot: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public let schemaVersion: Int
     public let snapshotSequence: Int
@@ -150,11 +150,19 @@ public struct AgentMeterSnapshot: Codable, Equatable, Sendable {
 public struct AgentMeterProviderSnapshot: Codable, Equatable, Sendable {
     public let id: String
     public let displayName: String
+    public let providerID: String?
+    public let accountID: String?
+    public let isActiveCLI: Bool?
     public let accountLabel: String?
+    /// Human name for the seat, for menu display only. It can carry an organisation name, so it
+    /// is deliberately absent from CodingKeys: it must never be written to either snapshot file.
+    /// Decoding therefore yields nil, and equality after a round trip holds only for nil hints.
+    public let accountDisplayHint: String?
     public let plan: String?
     public let windows: [AgentMeterUsageWindow]
     public let spend: AgentMeterSpendSummary?
     public let tokenUsage: AgentMeterTokenUsageSummary?
+    public let creditsUsed: Double?
     public let creditsRemaining: Double?
     public let codeReviewRemainingPercent: Double?
     public let source: AgentMeterSourceDescriptor
@@ -167,11 +175,16 @@ public struct AgentMeterProviderSnapshot: Codable, Equatable, Sendable {
     public init(
         id: String,
         displayName: String,
+        providerID: String? = nil,
+        accountID: String? = nil,
+        isActiveCLI: Bool? = nil,
         accountLabel: String? = nil,
+        accountDisplayHint: String? = nil,
         plan: String? = nil,
         windows: [AgentMeterUsageWindow],
         spend: AgentMeterSpendSummary? = nil,
         tokenUsage: AgentMeterTokenUsageSummary? = nil,
+        creditsUsed: Double? = nil,
         creditsRemaining: Double? = nil,
         codeReviewRemainingPercent: Double? = nil,
         source: AgentMeterSourceDescriptor,
@@ -183,11 +196,16 @@ public struct AgentMeterProviderSnapshot: Codable, Equatable, Sendable {
     {
         self.id = id
         self.displayName = displayName
+        self.providerID = providerID
+        self.accountID = accountID
+        self.isActiveCLI = isActiveCLI
         self.accountLabel = accountLabel
+        self.accountDisplayHint = accountDisplayHint
         self.plan = plan
         self.windows = windows
         self.spend = spend
         self.tokenUsage = tokenUsage
+        self.creditsUsed = creditsUsed
         self.creditsRemaining = creditsRemaining
         self.codeReviewRemainingPercent = codeReviewRemainingPercent
         self.source = source
@@ -209,7 +227,17 @@ public struct AgentMeterProviderSnapshot: Codable, Equatable, Sendable {
             id: widgetEntry.provider.rawValue,
             displayName: metadata?.displayName ?? widgetEntry.provider.rawValue,
             windows: windows,
+            spend: widgetEntry.providerCost.map { cost in
+                AgentMeterSpendSummary(
+                    used: cost.used,
+                    limit: cost.limit,
+                    remaining: max(0, cost.limit - cost.used),
+                    currencyCode: cost.currencyCode,
+                    period: cost.period,
+                    resetsAt: cost.resetsAt)
+            },
             tokenUsage: widgetEntry.tokenUsage.map(AgentMeterTokenUsageSummary.init(widgetTokenUsage:)),
+            creditsUsed: widgetEntry.creditsUsed,
             creditsRemaining: widgetEntry.creditsRemaining,
             codeReviewRemainingPercent: widgetEntry.codeReviewRemainingPercent,
             source: AgentMeterSourceDescriptor(
@@ -227,17 +255,23 @@ public struct AgentMeterProviderSnapshot: Codable, Equatable, Sendable {
         updatedAt: Date? = nil,
         staleAfter: Date? = nil,
         nextRefreshAt: Date? = nil,
-        lastError: String? = nil)
+        lastError: String? = nil,
+        clearCLIActivity: Bool = false)
         -> AgentMeterProviderSnapshot
     {
         AgentMeterProviderSnapshot(
             id: self.id,
             displayName: self.displayName,
+            providerID: self.providerID,
+            accountID: self.accountID,
+            isActiveCLI: clearCLIActivity ? nil : self.isActiveCLI,
             accountLabel: self.accountLabel,
+            accountDisplayHint: self.accountDisplayHint,
             plan: self.plan,
             windows: self.windows,
             spend: self.spend,
             tokenUsage: self.tokenUsage,
+            creditsUsed: self.creditsUsed,
             creditsRemaining: self.creditsRemaining,
             codeReviewRemainingPercent: self.codeReviewRemainingPercent,
             source: self.source,
@@ -251,6 +285,10 @@ public struct AgentMeterProviderSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case displayName
+        case providerID
+        case accountID
+        case isActiveCLI
+        case creditsUsed
         case accountLabel
         case plan
         case windows
@@ -270,7 +308,12 @@ public struct AgentMeterProviderSnapshot: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(String.self, forKey: .id)
         self.displayName = try container.decode(String.self, forKey: .displayName)
+        self.providerID = try container.decodeIfPresent(String.self, forKey: .providerID)
+        self.accountID = try container.decodeIfPresent(String.self, forKey: .accountID)
+        self.isActiveCLI = try container.decodeIfPresent(Bool.self, forKey: .isActiveCLI)
+        self.creditsUsed = try container.decodeIfPresent(Double.self, forKey: .creditsUsed)
         self.accountLabel = try container.decodeIfPresent(String.self, forKey: .accountLabel)
+        self.accountDisplayHint = nil
         self.plan = try container.decodeIfPresent(String.self, forKey: .plan)
         self.windows = try container.decode([AgentMeterUsageWindow].self, forKey: .windows)
         self.spend = try container.decodeIfPresent(AgentMeterSpendSummary.self, forKey: .spend)
@@ -312,7 +355,14 @@ public struct AgentMeterProviderSnapshot: Codable, Equatable, Sendable {
         }
 
         let existingIDs = Set(windows.map(\.id))
-        for row in entry.usageRows ?? [] where !existingIDs.contains(row.id) {
+        let compatibilityRowIDsToSkip = Set([
+            entry.primary == nil ? nil : "primary",
+            entry.secondary == nil ? nil : "secondary",
+            entry.tertiary == nil ? nil : "tertiary",
+        ].compactMap(\.self))
+        for row in entry.usageRows ?? []
+            where !existingIDs.contains(row.id) && !compatibilityRowIDsToSkip.contains(row.id)
+        {
             windows.append(AgentMeterUsageWindow(
                 id: row.id,
                 title: row.title,
@@ -326,6 +376,28 @@ public struct AgentMeterProviderSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+public struct AgentMeterFeedPace: Codable, Equatable, Sendable {
+    public let expectedPct: Double?
+    public let aheadOfPace: Bool?
+    public let projectedExhaustionAt: Date?
+    public let willLastToReset: Bool?
+
+    public func usagePace(usedPercent: Double, now: Date) -> UsagePace? {
+        guard let expectedPct, expectedPct.isFinite, (0...100).contains(expectedPct),
+              usedPercent.isFinite, let aheadOfPace else { return nil }
+        let delta = min(100, max(0, usedPercent)) - expectedPct
+        // The feed has its own warning threshold. Never reclassify its false marker as ahead.
+        let stage: UsagePace.Stage = aheadOfPace ? .ahead : delta < -2 ? .behind : .onTrack
+        return UsagePace(
+            stage: stage,
+            deltaPercent: delta,
+            expectedUsedPercent: expectedPct,
+            actualUsedPercent: usedPercent,
+            etaSeconds: self.projectedExhaustionAt.map { max(0, $0.timeIntervalSince(now)) },
+            willLastToReset: self.willLastToReset == true)
+    }
+}
+
 public struct AgentMeterUsageWindow: Codable, Equatable, Sendable {
     public let id: String
     public let title: String
@@ -334,6 +406,7 @@ public struct AgentMeterUsageWindow: Codable, Equatable, Sendable {
     public let resetsAt: Date?
     public let resetDescription: String?
     public let windowMinutes: Int?
+    public let feedPace: AgentMeterFeedPace?
 
     public init(
         id: String,
@@ -342,7 +415,8 @@ public struct AgentMeterUsageWindow: Codable, Equatable, Sendable {
         remainingPercent: Double?,
         resetsAt: Date?,
         resetDescription: String?,
-        windowMinutes: Int?)
+        windowMinutes: Int?,
+        feedPace: AgentMeterFeedPace? = nil)
     {
         self.id = id
         self.title = title
@@ -351,9 +425,10 @@ public struct AgentMeterUsageWindow: Codable, Equatable, Sendable {
         self.resetsAt = resetsAt
         self.resetDescription = resetDescription
         self.windowMinutes = windowMinutes
+        self.feedPace = feedPace
     }
 
-    public init(id: String, title: String, rateWindow: RateWindow) {
+    public init(id: String, title: String, rateWindow: RateWindow, feedPace: AgentMeterFeedPace? = nil) {
         self.init(
             id: id,
             title: title,
@@ -361,7 +436,8 @@ public struct AgentMeterUsageWindow: Codable, Equatable, Sendable {
             remainingPercent: rateWindow.remainingPercent,
             resetsAt: rateWindow.resetsAt,
             resetDescription: rateWindow.resetDescription,
-            windowMinutes: rateWindow.windowMinutes)
+            windowMinutes: rateWindow.windowMinutes,
+            feedPace: feedPace)
     }
 
     private static func clampedPercent(_ value: Double) -> Double {

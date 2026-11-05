@@ -7,6 +7,14 @@ extension UsageStore {
     private static let backfillMaxTimestampMismatch: TimeInterval = 5 * 60
 
     func weeklyPace(provider: UsageProvider, window: RateWindow, now: Date = .init()) -> UsagePace? {
+        if provider == .claude, let accounts = self.claudeSwapAccounts {
+            guard let active = accounts.first(where: { $0.isActiveCLI == true }),
+                  active.status == .ok,
+                  active.staleAfter.map({ $0 > now }) ?? true,
+                  active.claudeSwapUsageSnapshot.secondary == window,
+                  let weekly = active.windows.first(where: { $0.id == "weekly" }) else { return nil }
+            return weekly.feedPace?.usagePace(usedPercent: window.usedPercent, now: now)
+        }
         guard window.remainingPercent > 0 else { return nil }
         let resolved: UsagePace?
         let workDays = self.settings.weeklyProgressWorkDays

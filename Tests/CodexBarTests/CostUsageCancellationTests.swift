@@ -102,6 +102,40 @@ struct CostUsageCancellationTests {
         #expect(checks >= 3)
     }
 
+    @Test
+    func `codex metadata pre scan skips oversized first line`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2026, month: 1, day: 2)
+        let iso = env.isoString(for: day)
+        let hugeFirstLine = String(repeating: "x", count: 700_000)
+        _ = try env.writeCodexSessionFile(
+            day: day,
+            filename: "oversized-prefix.jsonl",
+            contents: [
+                hugeFirstLine,
+                #"{"type":"session_meta","payload":{"session_id":"session-oversized"}}"#,
+                #"{"type":"turn_context","timestamp":"\#(iso)","payload":{"model":"gpt-5"}}"#,
+                self.codexTokenLine(iso: iso),
+            ].joined(separator: "\n") + "\n")
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+
+        #expect(report.data.count == 1)
+        #expect(report.data.first?.inputTokens == 10)
+    }
+
     private func codexSessionContents(iso: String, tokenLineCount: Int) -> String {
         let session = #"{"type":"session_meta","payload":{"session_id":"session-1"}}"#
         let context = #"{"type":"turn_context","timestamp":"\#(iso)","payload":{"model":"gpt-5"}}"#

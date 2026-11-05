@@ -160,6 +160,99 @@ struct PathBuilderTests {
     }
 
     @Test
+    func `resolves codex from bundled ChatGPT app`() {
+        let appPath = "/Applications/ChatGPT.app/Contents/Resources/codex"
+        let fm = MockFileManager(executables: [appPath])
+
+        let resolved = BinaryLocator.resolveCodexBinary(
+            env: ["PATH": "/missing/bin"],
+            loginPATH: nil,
+            commandV: { _, _, _, _ in nil },
+            aliasResolver: { _, _, _, _, _ in nil },
+            launchCandidateFilter: { _, _ in true },
+            fileManager: fm,
+            home: "/Users/test")
+
+        #expect(resolved == appPath)
+    }
+
+    @Test
+    func `resolves codex from user bundled ChatGPT app`() {
+        let appPath = "/Users/test/Applications/ChatGPT.app/Contents/Resources/codex"
+        let fm = MockFileManager(executables: [appPath])
+
+        let resolved = BinaryLocator.resolveCodexBinary(
+            env: ["PATH": "/missing/bin"],
+            loginPATH: nil,
+            commandV: { _, _, _, _ in nil },
+            aliasResolver: { _, _, _, _, _ in nil },
+            launchCandidateFilter: { _, _ in true },
+            fileManager: fm,
+            home: "/Users/test")
+
+        #expect(resolved == appPath)
+    }
+
+    @Test
+    func `prefers bundled ChatGPT app over legacy Codex app within one scope`() {
+        let chatGPTPath = "/Applications/ChatGPT.app/Contents/Resources/codex"
+        let codexPath = "/Applications/Codex.app/Contents/Resources/codex"
+        let fm = MockFileManager(executables: [chatGPTPath, codexPath])
+
+        let resolved = BinaryLocator.resolveCodexBinary(
+            env: ["PATH": "/missing/bin"],
+            loginPATH: nil,
+            commandV: { _, _, _, _ in nil },
+            aliasResolver: { _, _, _, _, _ in nil },
+            launchCandidateFilter: { _, _ in true },
+            fileManager: fm,
+            home: "/Users/test")
+
+        #expect(resolved == chatGPTPath)
+    }
+
+    @Test
+    func `preserves user app precedence over system ChatGPT app`() {
+        let userCodexPath = "/Users/test/Applications/Codex.app/Contents/Resources/codex"
+        let systemChatGPTPath = "/Applications/ChatGPT.app/Contents/Resources/codex"
+        let fm = MockFileManager(executables: [userCodexPath, systemChatGPTPath])
+
+        let resolved = BinaryLocator.resolveCodexBinary(
+            env: ["PATH": "/missing/bin"],
+            loginPATH: nil,
+            commandV: { _, _, _, _ in nil },
+            aliasResolver: { _, _, _, _, _ in nil },
+            launchCandidateFilter: { _, _ in true },
+            fileManager: fm,
+            home: "/Users/test")
+
+        #expect(resolved == userCodexPath)
+    }
+
+    @Test
+    func `skips blocked ChatGPT app and falls back to legacy Codex app`() {
+        let chatGPTPath = "/Users/test/Applications/ChatGPT.app/Contents/Resources/codex"
+        let codexPath = "/Users/test/Applications/Codex.app/Contents/Resources/codex"
+        let fm = MockFileManager(executables: [chatGPTPath, codexPath])
+        var checked: [String] = []
+
+        let resolved = BinaryLocator.resolveCodexBinary(
+            env: ["PATH": "/missing/bin"],
+            loginPATH: nil,
+            commandV: { _, _, _, _ in nil },
+            aliasResolver: { _, _, _, _, _ in nil },
+            launchCandidateFilter: { path, _ in
+                checked.append(path)
+                return path != chatGPTPath
+            },
+            fileManager: fm,
+            home: "/Users/test")
+
+        #expect(resolved == codexPath)
+        #expect(checked == [chatGPTPath, codexPath])
+    }
+
+    @Test
     func `skips blocked codex path and falls back to signed app binary`() {
         let blockedPath = "/usr/local/bin/codex"
         let appPath = "/Applications/Codex.app/Contents/Resources/codex"
@@ -234,7 +327,8 @@ struct PathBuilderTests {
             path: "/Applications/Codex.app/Contents/Resources/codex",
             fileManager: MockFileManager(executables: []),
             hasExtendedAttribute: { _, name in name == "com.apple.quarantine" },
-            spctlAssessment: { _ in "accepted\nsource=Notarized Developer ID" },
+            spctlAssessment: { _ in .init(output: "accepted\nsource=Notarized Developer ID", exitStatus: 0) },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in true })
 
         #expect(allowed)
@@ -249,8 +343,162 @@ struct PathBuilderTests {
             hasExtendedAttribute: { _, name in name == "com.apple.malware" },
             spctlAssessment: { _ in
                 assessed = true
-                return "accepted\nsource=Notarized Developer ID"
+                return .init(output: "accepted\nsource=Notarized Developer ID", exitStatus: 0)
             },
+            appSignatureIsTrusted: { _ in true },
+            isMachOExecutable: { _ in true })
+
+        #expect(!allowed)
+        #expect(!assessed)
+    }
+
+    @Test
+    func `Codex launch preflight validates containing app bundle`() {
+        let executable = "/Applications/ChatGPT.app/Contents/Resources/codex"
+        let bundle = "/Applications/ChatGPT.app"
+        var assessedPaths: [String] = []
+
+        let allowed = CodexLaunchPreflight.isLaunchCandidateAllowed(
+            path: executable,
+            fileManager: MockFileManager(executables: []),
+            hasExtendedAttribute: { path, name in
+                path == bundle && name == "com.apple.quarantine"
+            },
+            spctlAssessment: { path in
+                assessedPaths.append(path)
+                return .init(output: "\(path): accepted\nsource=Notarized Developer ID", exitStatus: 0)
+            },
+            appSignatureIsTrusted: { path in path == bundle },
+            isMachOExecutable: { path in path == executable })
+
+        #expect(allowed)
+        #expect(assessedPaths == [bundle])
+    }
+
+    @Test
+    func `Codex launch preflight blocks unexpected app signing identity`() {
+        let executable = "/Users/test/Applications/ChatGPT.app/Contents/Resources/codex"
+        let bundle = "/Users/test/Applications/ChatGPT.app"
+        var assessed = false
+
+        let allowed = CodexLaunchPreflight.isLaunchCandidateAllowed(
+            path: executable,
+            fileManager: MockFileManager(executables: []),
+            hasExtendedAttribute: { _, _ in false },
+            spctlAssessment: { _ in
+                assessed = true
+                return .init(output: "accepted", exitStatus: 0)
+            },
+            appSignatureIsTrusted: { path in
+                #expect(path == bundle)
+                return false
+            },
+            isMachOExecutable: { path in path == executable })
+
+        #expect(!allowed)
+        #expect(!assessed)
+    }
+
+    @Test
+    func `Codex launch preflight blocks rejected containing app bundle`() {
+        let executable = "/Users/test/Applications/ChatGPT.app/Contents/Resources/codex"
+        let bundle = "/Users/test/Applications/ChatGPT.app"
+
+        let allowed = CodexLaunchPreflight.isLaunchCandidateAllowed(
+            path: executable,
+            fileManager: MockFileManager(executables: []),
+            hasExtendedAttribute: { _, _ in false },
+            spctlAssessment: { path in
+                #expect(path == bundle)
+                return .init(output: "\(path): rejected\nsource=no usable signature", exitStatus: 3)
+            },
+            appSignatureIsTrusted: { _ in true },
+            isMachOExecutable: { path in path == executable })
+
+        #expect(!allowed)
+    }
+
+    @Test
+    func `Codex launch preflight requires successful app bundle assessment`() {
+        let executable = "/Users/test/Applications/ChatGPT.app/Contents/Resources/codex"
+        let bundle = "/Users/test/Applications/ChatGPT.app"
+
+        let allowed = CodexLaunchPreflight.isLaunchCandidateAllowed(
+            path: executable,
+            fileManager: MockFileManager(executables: []),
+            hasExtendedAttribute: { _, _ in false },
+            spctlAssessment: { path in
+                #expect(path == bundle)
+                return .init(output: "\(path): accepted", exitStatus: 1)
+            },
+            appSignatureIsTrusted: { _ in true },
+            isMachOExecutable: { path in path == executable })
+
+        #expect(!allowed)
+    }
+
+    @Test
+    func `Codex launch preflight rejects indeterminate app assessment`() {
+        let executable = "/Users/test/Applications/ChatGPT.app/Contents/Resources/codex"
+        let bundle = "/Users/test/Applications/ChatGPT.app"
+
+        let allowed = CodexLaunchPreflight.isLaunchCandidateAllowed(
+            path: executable,
+            fileManager: MockFileManager(executables: []),
+            hasExtendedAttribute: { _, _ in false },
+            spctlAssessment: { path in
+                #expect(path == bundle)
+                return .init(output: "internal code signing error", exitStatus: 0)
+            },
+            appSignatureIsTrusted: { _ in true },
+            isMachOExecutable: { path in path == executable })
+
+        #expect(!allowed)
+    }
+
+    @Test
+    func `Codex launch preflight fails closed when app bundle cannot be assessed`() {
+        let executable = "/Users/test/Applications/ChatGPT.app/Contents/Resources/codex"
+        let bundle = "/Users/test/Applications/ChatGPT.app"
+
+        let allowed = CodexLaunchPreflight.isLaunchCandidateAllowed(
+            path: executable,
+            fileManager: MockFileManager(executables: []),
+            hasExtendedAttribute: { path, name in
+                path == bundle && name == "com.apple.quarantine"
+            },
+            spctlAssessment: { path in
+                #expect(path == bundle)
+                return nil
+            },
+            appSignatureIsTrusted: { _ in true },
+            isMachOExecutable: { _ in false })
+
+        #expect(!allowed)
+    }
+
+    @Test
+    func `Codex launch preflight blocks app bundled executable symlink escaping the bundle`() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let bundle = root.appendingPathComponent("ChatGPT.app")
+        let resources = bundle.appendingPathComponent("Contents/Resources")
+        let executable = resources.appendingPathComponent("codex")
+        let escapedTarget = root.appendingPathComponent("outside-codex")
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        try Data().write(to: escapedTarget)
+        try FileManager.default.createSymbolicLink(at: executable, withDestinationURL: escapedTarget)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var assessed = false
+
+        let allowed = CodexLaunchPreflight.isLaunchCandidateAllowed(
+            path: executable.path,
+            fileManager: FileManager.default,
+            hasExtendedAttribute: { _, _ in false },
+            spctlAssessment: { _ in
+                assessed = true
+                return .init(output: "accepted", exitStatus: 0)
+            },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in true })
 
         #expect(!allowed)
@@ -264,6 +512,7 @@ struct PathBuilderTests {
             fileManager: MockFileManager(executables: []),
             hasExtendedAttribute: { _, name in name == "com.apple.quarantine" },
             spctlAssessment: { _ in nil },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in false })
 
         #expect(!allowed)
@@ -275,7 +524,8 @@ struct PathBuilderTests {
             path: "/Applications/Codex.app/Contents/Resources/codex",
             fileManager: MockFileManager(executables: []),
             hasExtendedAttribute: { _, _ in false },
-            spctlAssessment: { _ in "rejected\nCSSMERR_TP_CERT_REVOKED" },
+            spctlAssessment: { _ in .init(output: "rejected\nCSSMERR_TP_CERT_REVOKED", exitStatus: 3) },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in true })
 
         #expect(!allowed)
@@ -287,7 +537,8 @@ struct PathBuilderTests {
             path: "/opt/homebrew/bin/codex",
             fileManager: MockFileManager(executables: []),
             hasExtendedAttribute: { _, _ in false },
-            spctlAssessment: { _ in "rejected\nsource=no usable signature" },
+            spctlAssessment: { _ in .init(output: "rejected\nsource=no usable signature", exitStatus: 3) },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in true })
 
         #expect(!allowed)
@@ -299,7 +550,12 @@ struct PathBuilderTests {
             path: "/opt/homebrew/bin/codex",
             fileManager: MockFileManager(executables: []),
             hasExtendedAttribute: { _, name in name == "com.apple.quarantine" },
-            spctlAssessment: { path in "\(path): rejected (the code is valid but does not seem to be an app)" },
+            spctlAssessment: { path in
+                .init(
+                    output: "\(path): rejected (the code is valid but does not seem to be an app)",
+                    exitStatus: 3)
+            },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in true })
 
         #expect(allowed)
@@ -312,11 +568,14 @@ struct PathBuilderTests {
             fileManager: MockFileManager(executables: []),
             hasExtendedAttribute: { _, name in name == "com.apple.quarantine" },
             spctlAssessment: { _ in
-                """
-                rejected (the code is valid but does not seem to be an app)
-                CSSMERR_TP_CERT_REVOKED
-                """
+                .init(
+                    output: """
+                    rejected (the code is valid but does not seem to be an app)
+                    CSSMERR_TP_CERT_REVOKED
+                    """,
+                    exitStatus: 3)
             },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in true })
 
         #expect(!allowed)
@@ -328,7 +587,10 @@ struct PathBuilderTests {
             path: "/tmp/code is valid but does not seem to be an app/codex",
             fileManager: MockFileManager(executables: []),
             hasExtendedAttribute: { _, name in name == "com.apple.quarantine" },
-            spctlAssessment: { path in "\(path): rejected\nsource=no usable signature" },
+            spctlAssessment: { path in
+                .init(output: "\(path): rejected\nsource=no usable signature", exitStatus: 3)
+            },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in true })
 
         #expect(!allowed)
@@ -340,7 +602,10 @@ struct PathBuilderTests {
             path: "/tmp/x: code is valid but does not seem to be an app/codex",
             fileManager: MockFileManager(executables: []),
             hasExtendedAttribute: { _, name in name == "com.apple.quarantine" },
-            spctlAssessment: { path in "\(path): rejected\nsource=no usable signature" },
+            spctlAssessment: { path in
+                .init(output: "\(path): rejected\nsource=no usable signature", exitStatus: 3)
+            },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in true })
 
         #expect(!allowed)
@@ -353,12 +618,15 @@ struct PathBuilderTests {
             fileManager: MockFileManager(executables: []),
             hasExtendedAttribute: { _, name in name == "com.apple.quarantine" },
             spctlAssessment: { path in
-                """
-                \(path): accepted
-                source=revoked quarantine marker
-                origin=malware test fixture
-                """
+                .init(
+                    output: """
+                    \(path): accepted
+                    source=revoked quarantine marker
+                    origin=malware test fixture
+                    """,
+                    exitStatus: 0)
             },
+            appSignatureIsTrusted: { _ in true },
             isMachOExecutable: { _ in true })
 
         #expect(allowed)
@@ -647,7 +915,9 @@ struct PathBuilderTests {
         #expect(!aliasCalled)
         #expect(resolved == path)
     }
+}
 
+extension PathBuilderTests {
     private static func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }

@@ -247,10 +247,28 @@ extension StatusItemController {
             "\(self.store.planUtilizationHistoryRevision)",
             "\(Int(Date().timeIntervalSince1970 / 60))",
             selection.accountKey ?? "unscoped",
+            provider == .claude ? self.claudeSwapRenderSignature() : "",
             snapshot?.primary == nil ? "0" : "1",
             snapshot?.secondary == nil ? "0" : "1",
             snapshot?.tertiary == nil ? "0" : "1",
         ].joined(separator: "|")
+    }
+
+    /// Identity and freshness of each seat, enough to know the chart needs redrawing. Reflecting
+    /// the whole account array instead would retain emails, organisation names and usage numbers
+    /// in a string rebuilt on every render check.
+    private func claudeSwapRenderSignature() -> String {
+        guard let accounts = self.store.claudeSwapAccounts else { return "none" }
+        return accounts
+            .map { account in
+                [
+                    account.accountID ?? account.id,
+                    "\(account.updatedAt.timeIntervalSince1970)",
+                    account.isActiveCLI == true ? "1" : "0",
+                    account.status.rawValue,
+                ].joined(separator: ",")
+            }
+            .joined(separator: ";")
     }
 
     private func storageBreakdownRenderSignature(for provider: UsageProvider) -> String {

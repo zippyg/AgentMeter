@@ -136,10 +136,18 @@ enum ClaudeStatusLineUsageCache {
     }
 
     private static func extraRateWindows(from usage: OAuthUsageResponse) -> [NamedRateWindow] {
-        guard let routines = self.window(usage.sevenDayRoutines, minutes: 7 * 24 * 60) else {
-            return []
+        var windows: [NamedRateWindow] = []
+        if let routines = self.window(usage.sevenDayRoutines, minutes: 7 * 24 * 60) {
+            windows.append(NamedRateWindow(id: "claude-routines", title: "Daily Routines", window: routines))
         }
-        return [NamedRateWindow(id: "claude-routines", title: "Daily Routines", window: routines)]
+        var seenIDs = Set(windows.map(\.id))
+        for limit in usage.limits {
+            guard let window = limit.scopedWeeklyWindow(), seenIDs.insert(window.id).inserted else {
+                continue
+            }
+            windows.append(window)
+        }
+        return windows
     }
 
     private static func extraUsageCost(_ extra: OAuthExtraUsage?, updatedAt: Date) -> ProviderCostSnapshot? {

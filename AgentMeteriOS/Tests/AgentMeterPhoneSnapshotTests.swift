@@ -172,6 +172,103 @@ final class AgentMeterPhoneSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.claude?.primaryWindow?.usedPercent, 42)
     }
 
+    func test_phoneSnapshotNormalizesLegacyQuotaAliasesForPrimaryProviders() throws {
+        let aliases = """
+        { "id": "primary", "title": "Session", "usedPercent": 19 },
+        { "id": "secondary", "title": "Weekly", "usedPercent": 32 }
+        """
+        let canonical = """
+        {
+          "id": "session",
+          "title": "Session",
+          "usedPercent": 19,
+          "resetsAt": "2026-08-26T22:00:00Z",
+          "windowMinutes": 300
+        },
+        {
+          "id": "weekly",
+          "title": "Weekly",
+          "usedPercent": 32,
+          "resetsAt": "2026-08-30T02:00:00Z",
+          "windowMinutes": 10080
+        }
+        """
+
+        for providerID in ["claude", "codex"] {
+            for aliasFirst in [true, false] {
+                let windows = aliasFirst ? "\(aliases),\(canonical)" : "\(canonical),\(aliases)"
+                let json = """
+                {
+                  "generatedAt": "2026-08-26T19:00:00Z",
+                  "providers": [{
+                    "displayName": "\(providerID)",
+                    "id": "\(providerID)",
+                    "source": { "confidence": "derived", "label": "AgentMeter snapshot" },
+                    "status": "ok",
+                    "updatedAt": "2026-08-26T19:00:00Z",
+                    "windows": [\(windows)]
+                  }]
+                }
+                """
+
+                let snapshot = try JSONDecoder.agentMeter.decode(
+                    AgentMeterPhoneSnapshot.self,
+                    from: Data(json.utf8))
+                let provider = try XCTUnwrap(snapshot.providers.first)
+
+                XCTAssertEqual(provider.windows.map(\.id), ["session", "weekly"])
+                XCTAssertNotNil(provider.primaryWindow?.resetsAt)
+                XCTAssertEqual(provider.primaryWindow?.windowMinutes, 300)
+                XCTAssertEqual(provider.weeklyWindow?.windowMinutes, 10080)
+            }
+        }
+    }
+
+    func test_quotaAliasNormalizationPreservesCanonicalWindowSemantics() throws {
+        let now = Date(timeIntervalSince1970: 1_812_998_400)
+        let aliasOnly = AgentMeterPhoneProvider.fixture(
+            id: "claude",
+            now: now,
+            windows: [
+                AgentMeterPhoneUsageWindow(
+                    id: "secondary",
+                    title: "Weekly",
+                    usedPercent: 32,
+                    remainingPercent: 68,
+                    resetsAt: nil,
+                    resetDescription: nil,
+                    windowMinutes: 10080),
+            ])
+        XCTAssertEqual(aliasOnly.windows.map(\.id), ["weekly"])
+        XCTAssertNil(aliasOnly.primaryWindow)
+        XCTAssertEqual(aliasOnly.weeklyWindow?.usedPercent, 32)
+
+        let nonPrimary = AgentMeterPhoneProvider.fixture(
+            id: "gemini",
+            now: now,
+            windows: [
+                AgentMeterPhoneUsageWindow(
+                    id: "primary",
+                    title: "Flash",
+                    usedPercent: 12,
+                    remainingPercent: 88,
+                    resetsAt: nil,
+                    resetDescription: nil,
+                    windowMinutes: nil),
+                AgentMeterPhoneUsageWindow(
+                    id: "secondary",
+                    title: "Pro",
+                    usedPercent: 24,
+                    remainingPercent: 76,
+                    resetsAt: nil,
+                    resetDescription: nil,
+                    windowMinutes: nil),
+            ])
+        XCTAssertEqual(nonPrimary.windows.map(\.id), ["primary", "secondary"])
+        XCTAssertEqual(nonPrimary.primaryWindow?.title, "Flash")
+        XCTAssertEqual(nonPrimary.weeklyWindow?.title, "Pro")
+    }
+
     func test_storeSavesPrimaryProjectionWithoutSecrets() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentmeter-ios-save-tests", isDirectory: true)
@@ -360,6 +457,10 @@ final class AgentMeterPhoneSnapshotTests: XCTestCase {
         XCTAssertEqual(
             AgentMeterFormat.resetMetricText(resetsAt: nil, resetDescription: "Jun 17 at 2:19AM", from: now),
             "Jun 17 at 2:19AM")
+        XCTAssertNil(AgentMeterFormat.resetText(
+            resetsAt: now.addingTimeInterval(-60),
+            resetDescription: "Resets in 2h",
+            from: now))
     }
 
     func test_paceProjectionShowsEmptyBeforeResetWhenUsageRateIsTooHigh() throws {
@@ -373,10 +474,61 @@ final class AgentMeterPhoneSnapshotTests: XCTestCase {
             resetDescription: "2h",
             windowMinutes: 180)
 
-        let projection = try XCTUnwrap(window.paceProjection(generatedAt: generatedAt))
+        let projection = try XCTUnwrap(window.paceProjection(
+            observedAt: generatedAt,
+            referenceDate: generatedAt))
 
         XCTAssertTrue(projection.emptiesBeforeReset)
         XCTAssertEqual(projection.markerPercent, 2.0 / 3.0, accuracy: 0.0001)
+    }
+
+    func test_paceProjectionSuppressesExpiredAndAlreadyPassedForecasts() throws {
+        let referenceDate = Date(timeIntervalSince1970: 1_812_998_400)
+        let expired = AgentMeterPhoneUsageWindow(
+            id: "weekly",
+            title: "Weekly",
+            usedPercent: 13,
+            remainingPercent: 87,
+            resetsAt: referenceDate.addingTimeInterval(-60),
+            resetDescription: nil,
+            windowMinutes: 10080)
+        XCTAssertNil(expired.paceProjection(
+            observedAt: referenceDate.addingTimeInterval(-7 * 24 * 60 * 60),
+            referenceDate: referenceDate))
+
+        let forecastAlreadyPassed = AgentMeterPhoneUsageWindow(
+            id: "session",
+            title: "Session",
+            usedPercent: 90,
+            remainingPercent: 10,
+            resetsAt: referenceDate.addingTimeInterval(2 * 60 * 60),
+            resetDescription: nil,
+            windowMinutes: 600)
+        XCTAssertNil(forecastAlreadyPassed.paceProjection(
+            observedAt: referenceDate.addingTimeInterval(-2 * 60 * 60),
+            referenceDate: referenceDate))
+    }
+
+    func test_providerProjectionUsesObservationTimeAndSuppressesStaleData() throws {
+        let referenceDate = Date(timeIntervalSince1970: 1_812_998_400)
+        let window = AgentMeterPhoneUsageWindow(
+            id: "session",
+            title: "Session",
+            usedPercent: 50,
+            remainingPercent: 50,
+            resetsAt: referenceDate.addingTimeInterval(2 * 60 * 60),
+            resetDescription: nil,
+            windowMinutes: 180)
+        var provider = AgentMeterPhoneProvider.fixture(
+            id: "codex",
+            now: referenceDate,
+            windows: [window])
+
+        let projection = try XCTUnwrap(provider.paceProjection(for: window, referenceDate: referenceDate))
+        XCTAssertEqual(projection.markerPercent, 2.0 / 3.0, accuracy: 0.0001)
+
+        provider.staleAfter = referenceDate
+        XCTAssertNil(provider.paceProjection(for: window, referenceDate: referenceDate))
     }
 
     func test_defaultURLUsesFallbackWhenAppGroupIsNotConfigured() throws {
@@ -428,6 +580,7 @@ final class AgentMeterPhoneSnapshotTests: XCTestCase {
         XCTAssertEqual(claude.weeklyWindow?.id, "weekly")
         XCTAssertEqual(claude.weeklyWindow?.title, "Weekly")
         XCTAssertEqual(claude.weeklyWindow?.usedPercent, 63)
+        XCTAssertNotNil(claude.updatedAt)
 
         let codex = try XCTUnwrap(snapshot.providers.first { $0.id == "codex" })
         XCTAssertEqual(codex.sessionWindow?.id, "session")
@@ -436,6 +589,28 @@ final class AgentMeterPhoneSnapshotTests: XCTestCase {
         XCTAssertEqual(codex.weeklyWindow?.id, "weekly")
         XCTAssertEqual(codex.weeklyWindow?.title, "Weekly")
         XCTAssertEqual(codex.weeklyWindow?.usedPercent, 51)
+        XCTAssertNotNil(codex.updatedAt)
+        #endif
+    }
+
+    func test_activityProviderDecodesLegacyStateWithoutObservationMetadata() throws {
+        #if canImport(ActivityKit)
+        let json = """
+        {
+          "displayName": "Claude",
+          "id": "claude",
+          "sessionWindow": null,
+          "status": "ok",
+          "weeklyWindow": null
+        }
+        """
+
+        let provider = try JSONDecoder.agentMeter.decode(AgentMeterActivityProvider.self, from: Data(json.utf8))
+        XCTAssertNil(provider.updatedAt)
+        XCTAssertNil(provider.staleAfter)
+        XCTAssertTrue(provider.isStale(
+            reference: Date(timeIntervalSince1970: 1_812_998_400),
+            activityIsStale: true))
         #endif
     }
 
@@ -478,9 +653,10 @@ final class AgentMeterPhoneSnapshotTests: XCTestCase {
     }
 
     func test_phoneInsightsAggregatePrimarySnapshot() throws {
-        let snapshot = AgentMeterSampleData.snapshot(now: Date(timeIntervalSince1970: 1_812_998_400))
+        let now = Date(timeIntervalSince1970: 1_812_998_400)
+        let snapshot = AgentMeterSampleData.snapshot(now: now)
 
-        let insights = AgentMeterPhoneInsights(snapshot: snapshot)
+        let insights = AgentMeterPhoneInsights(snapshot: snapshot, referenceDate: now)
 
         XCTAssertEqual(insights.providerCount, 2)
         XCTAssertEqual(insights.attentionProviderCount, 0)
@@ -496,6 +672,47 @@ final class AgentMeterPhoneSnapshotTests: XCTestCase {
         XCTAssertEqual(insights.combinedDailyUsage.last?.totalTokens, 670_000)
         XCTAssertEqual(try XCTUnwrap(insights.combinedDailyUsage.last?.costUSD), 6.98, accuracy: 0.0001)
     }
+
+    func test_phoneInsightsExcludeStaleProvidersAndExpiredResets() throws {
+        let now = Date(timeIntervalSince1970: 1_812_998_400)
+        var staleSnapshot = AgentMeterSampleData.snapshot(now: now)
+        for index in staleSnapshot.providers.indices {
+            staleSnapshot.providers[index].staleAfter = now
+        }
+        let staleInsights = AgentMeterPhoneInsights(snapshot: staleSnapshot, referenceDate: now)
+        XCTAssertEqual(staleInsights.attentionProviderCount, 2)
+        XCTAssertNil(staleInsights.nextReset)
+
+        var expiredSnapshot = AgentMeterSampleData.snapshot(now: now)
+        for providerIndex in expiredSnapshot.providers.indices {
+            expiredSnapshot.providers[providerIndex].staleAfter = now.addingTimeInterval(60)
+            for windowIndex in expiredSnapshot.providers[providerIndex].windows.indices {
+                expiredSnapshot.providers[providerIndex].windows[windowIndex].resetsAt = now.addingTimeInterval(-60)
+                expiredSnapshot.providers[providerIndex].windows[windowIndex].resetDescription = nil
+            }
+        }
+        let expiredInsights = AgentMeterPhoneInsights(snapshot: expiredSnapshot, referenceDate: now)
+        XCTAssertEqual(expiredInsights.attentionProviderCount, 0)
+        XCTAssertNil(expiredInsights.nextReset)
+    }
+}
+
+private extension AgentMeterPhoneProvider {
+    static func fixture(
+        id: String,
+        now: Date,
+        windows: [AgentMeterPhoneUsageWindow])
+        -> AgentMeterPhoneProvider
+    {
+        AgentMeterPhoneProvider(
+            id: id,
+            displayName: id.capitalized,
+            windows: windows,
+            source: AgentMeterPhoneSource(confidence: .derived, label: "fixture"),
+            status: .ok,
+            updatedAt: now,
+            staleAfter: now.addingTimeInterval(60))
+    }
 }
 
 private extension JSONDecoder {
@@ -503,5 +720,33 @@ private extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    }
+}
+
+extension AgentMeterPhoneSnapshotTests {
+    func test_twoClaudeAccountsSurviveProjectionAndRoundTrip() throws {
+        let json = #"""
+        {"schemaVersion":3,"generatedAt":"2027-01-15T08:00:00Z","providers":[
+          {"id":"claude:cswap:1","providerID":"claude","accountID":"cswap:1","accountLabel":"Account 1",
+           "displayName":"Claude","isActiveCLI":false,"windows":[{"id":"session","title":"5-hour","usedPercent":15}],
+           "source":{"confidence":"local","label":"claude-swap"},"updatedAt":"2027-01-15T08:00:00Z"},
+          {"id":"claude:cswap:2","providerID":"claude","accountID":"cswap:2","accountLabel":"Account 2",
+           "displayName":"Claude","isActiveCLI":true,"windows":[{"id":"weekly","title":"Weekly","usedPercent":25}],
+           "source":{"confidence":"local","label":"claude-swap"},"updatedAt":"2027-01-15T08:00:00Z"},
+          {"id":"codex","displayName":"Codex","windows":[],"creditsUsed":4,"creditsRemaining":6,
+           "spend":{"used":2,"currencyCode":"GBP"},
+           "source":{"confidence":"derived","label":"test"},"updatedAt":"2027-01-15T08:00:00Z"}
+        ]}
+        """#
+        let snapshot = try JSONDecoder.agentMeter.decode(AgentMeterPhoneSnapshot.self, from: Data(json.utf8))
+        let projected = snapshot.primaryProjection()
+        XCTAssertEqual(projected.providers.count, 3)
+        XCTAssertEqual(projected.claude?.accountID, "cswap:2")
+        XCTAssertNil(projected.claude?.primaryWindow)
+        XCTAssertEqual(projected.claude?.accountDisplayLabel, "Account 2 · CLI active")
+        XCTAssertEqual(projected.codex?.creditsUsed, 4)
+        XCTAssertEqual(projected.codex?.spend?.currencyCode, "GBP")
+        let encoded = try JSONEncoder().encode(projected)
+        XCTAssertEqual(try JSONDecoder().decode(AgentMeterPhoneSnapshot.self, from: encoded), projected)
     }
 }

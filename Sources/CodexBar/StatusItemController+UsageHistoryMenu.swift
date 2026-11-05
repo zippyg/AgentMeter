@@ -62,11 +62,28 @@ extension StatusItemController {
             return true
         }
 
-        let chartView = PlanUtilizationHistoryChartMenuView(
-            provider: provider,
-            histories: histories,
-            snapshot: snapshot,
-            width: width)
+        let accounts = provider == .claude ? self.store.claudeSwapAccounts ?? [] : []
+        let chartView = VStack(alignment: .leading, spacing: 0) {
+            if accounts.count > 1 {
+                ForEach(accounts, id: \.id) { account in
+                    Text(account.accountDisplayHint ?? account.displayName)
+                        .font(.headline)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                    PlanUtilizationHistoryChartMenuView(
+                        provider: provider,
+                        histories: self.store.claudeSwapPlanUtilizationHistories(for: account),
+                        snapshot: account.claudeSwapUsageSnapshot,
+                        width: width)
+                }
+            } else {
+                PlanUtilizationHistoryChartMenuView(
+                    provider: provider,
+                    histories: histories,
+                    snapshot: accounts.first?.claudeSwapUsageSnapshot ?? snapshot,
+                    width: width)
+            }
+        }
         let hosting = UsageHistoryMenuHostingView(rootView: chartView)
         hosting.frame = NSRect(
             origin: .zero,

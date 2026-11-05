@@ -292,6 +292,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
     var screenChangeVisibilityTask: Task<Void, Never>?
     var menuBarVisibilityWatchdogTask: Task<Void, Never>?
     var lastMenuBarVisibilityWatchdogSignature: String?
+    var hasAttemptedWatchdogStatusItemRecovery = false
     var lastMenuBarStatusItemRecoveryAt: Date?
     let loginLogger = CodexBarLog.logger(LogCategories.login)
     let menuLogger = CodexBarLog.logger(LogCategories.app)
@@ -974,6 +975,7 @@ extension StatusItemController {
         reason: String,
         missingAutosaveNames: [String],
         windowDiagnostics: String,
+        allowsDisplacedWindowRecovery: Bool,
         now: Date = Date())
         -> Bool
     {
@@ -988,11 +990,15 @@ extension StatusItemController {
         // kCGWindowName. Recent macOS (Tahoe and later) redacts CoreGraphics window names, so the
         // probe returns no match for a perfectly materialized item and reports it as missing every
         // watchdog tick. Recreating a healthy item makes the menu-bar icon visibly flash. Trust
-        // AppKit's authoritative view of OUR item instead: if it has a window in the menu-extra
-        // region on a screen, it is present, so do not recreate it. Genuine loss (the original
-        // materialization bug) still leaves hasWindow false, so real recovery is preserved.
+        // AppKit's authoritative view of OUR item instead. Healthy geometry vetoes every recovery;
+        // a displaced backing window is eligible only from bounded startup and display-change
+        // checks. The watchdog gets one genuine window-loss recovery per app launch, preventing a
+        // persistent failure from becoming a ten-second flash loop.
         let appKitSnapshot = MenuBarVisibilityWatcher.visibilitySnapshot(self.statusItem)
-        if MenuBarVisibilityWatcher.statusItemAppearsMaterialized(appKitSnapshot) {
+        if !MenuBarVisibilityWatcher.shouldAttemptStatusItemRecovery(
+            snapshot: appKitSnapshot,
+            allowsDisplacedWindowRecovery: allowsDisplacedWindowRecovery)
+        {
             return false
         }
         guard !self.isMergedMenuOpen else { return false }

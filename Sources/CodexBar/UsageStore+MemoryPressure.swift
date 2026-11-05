@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 extension UsageStore {
     func scheduleMemoryPressureRelief() {
+        guard self.sessionIsActive else { return }
         guard self.memoryPressureReliefTask == nil else { return }
 
         self.memoryPressureReliefTask = Task.detached(priority: .utility) { [weak self] in
@@ -12,7 +13,8 @@ extension UsageStore {
                 MemoryPressureRelief.releaseFreeMallocPages()
             }
             await MainActor.run { [weak self] in
-                self?.memoryPressureReliefTask = nil
+                guard let self, self.sessionIsActive else { return }
+                self.memoryPressureReliefTask = nil
             }
         }
     }

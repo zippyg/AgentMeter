@@ -128,7 +128,9 @@ enum MenuBarVisibilityWatcher {
             return false
         }
         let verticalBand = max(self.menuExtraVerticalBandPadding, frame.height + 12)
-        let isHorizontallyOnScreen = frame.midX >= screenFrame.minX && frame.midX <= screenFrame.maxX
+        // Control Center parks hidden third-party items exactly at either horizontal display edge.
+        // The window still intersects the screen, but the item has no visible menu-bar icon.
+        let isHorizontallyOnScreen = frame.minX > screenFrame.minX && frame.maxX < screenFrame.maxX
         let isNearTopMenuBar = frame.midY >= screenFrame.maxY - verticalBand
             && frame.midY <= screenFrame.maxY + verticalBand
         return isHorizontallyOnScreen && isNearTopMenuBar
@@ -155,6 +157,7 @@ enum MenuBarVisibilityWatcher {
         }
         return !snapshot.hasScreen
             || !snapshot.isOnCurrentScreen
+            || !snapshot.isInMenuExtraRegion
     }
 
     static func hasBlockedVisibleSnapshots(_ snapshots: [StatusItemVisibilitySnapshot]) -> Bool {
@@ -177,13 +180,28 @@ enum MenuBarVisibilityWatcher {
         }
     }
 
+    static func hasAnyInvalidMenuExtraPlacement(_ snapshots: [StatusItemVisibilitySnapshot]) -> Bool {
+        snapshots.contains { snapshot in
+            snapshot.isVisible
+                && snapshot.hasButton
+                && snapshot.hasWindow
+                && snapshot.hasScreen
+                && snapshot.isOnCurrentScreen
+                && snapshot.buttonWidth > 0
+                && snapshot.windowHeight > 0
+                && !snapshot.isInMenuExtraRegion
+        }
+    }
+
     static func hasAnySystemBlockCandidate(
         snapshots: [StatusItemVisibilitySnapshot],
         windowSnapshots: [MenuBarStatusItemWindowSnapshot] = [],
         detectTahoeBlockedProxy: Bool = false)
         -> Bool
     {
-        if self.hasAnyBlockedVisibleSnapshot(snapshots) {
+        if self.hasAnyBlockedVisibleSnapshot(snapshots)
+            || self.hasAnyInvalidMenuExtraPlacement(snapshots)
+        {
             return true
         }
         return detectTahoeBlockedProxy && windowSnapshots.contains(where: \.isTahoeBlockedProxy)
@@ -201,11 +219,64 @@ enum MenuBarVisibilityWatcher {
             .filter { !materializedNames.contains($0) }
     }
 
-    /// Whether AppKit itself reports the status item as a materialized, on-screen menu-bar window.
-    /// Used to veto window recovery when the CoreGraphics name probe is unreliable (recent macOS
-    /// redacts window names), so a healthy item is not recreated every watchdog tick.
+    /// Whether AppKit reports a status item window in the visible menu-extra region. A displaced
+    /// backing window is not healthy, but only bounded startup and display-change checks may repair
+    /// it. The periodic watchdog must not recreate a displaced item every tick.
     static func statusItemAppearsMaterialized(_ snapshot: StatusItemVisibilitySnapshot) -> Bool {
-        snapshot.hasWindow && snapshot.hasScreen && snapshot.isInMenuExtraRegion
+        snapshot.hasWindow
+            && snapshot.hasScreen
+            && snapshot.isOnCurrentScreen
+            && snapshot.isInMenuExtraRegion
+    }
+
+    static func shouldAttemptStatusItemRecovery(
+        snapshot: StatusItemVisibilitySnapshot,
+        allowsDisplacedWindowRecovery: Bool)
+        -> Bool
+    {
+        guard !self.statusItemAppearsMaterialized(snapshot) else { return false }
+        if !snapshot.hasWindow {
+            return true
+        }
+        guard allowsDisplacedWindowRecovery,
+              snapshot.hasScreen,
+              snapshot.windowHeight > 0
+        else {
+            return false
+        }
+        return !snapshot.isOnCurrentScreen || !snapshot.isInMenuExtraRegion
+    }
+
+    static func recoveryAutosaveNames(
+        visibleAutosaveNames: [String],
+        windowSnapshots: [MenuBarStatusItemWindowSnapshot],
+        mergedAutosaveName: String?,
+        mergedSnapshot: StatusItemVisibilitySnapshot,
+        allowsDisplacedWindowRecovery: Bool)
+        -> [String]
+    {
+        var names = self.missingVisibleWindowAutosaveNames(
+            visibleAutosaveNames: visibleAutosaveNames,
+            windowSnapshots: windowSnapshots)
+        guard let mergedAutosaveName,
+              visibleAutosaveNames.contains(mergedAutosaveName)
+        else {
+            return names
+        }
+        if windowSnapshots.contains(where: {
+            $0.name == mergedAutosaveName && $0.isTahoeBlockedProxy
+        }) {
+            names.removeAll { $0 == mergedAutosaveName }
+            return names
+        }
+        if self.shouldAttemptStatusItemRecovery(
+            snapshot: mergedSnapshot,
+            allowsDisplacedWindowRecovery: allowsDisplacedWindowRecovery),
+            !names.contains(mergedAutosaveName)
+        {
+            names.append(mergedAutosaveName)
+        }
+        return names
     }
 
     @MainActor
@@ -237,6 +308,7 @@ enum MenuBarVisibilityWatcher {
 
     static func shouldSurfaceScreenChangeGuidance(snapshots: [StatusItemVisibilitySnapshot]) -> Bool {
         self.hasAnyBlockedVisibleSnapshot(snapshots)
+            || self.hasAnyInvalidMenuExtraPlacement(snapshots)
     }
 
     static func shouldShowGuidance(defaults: UserDefaults, now: Date = Date()) -> Bool {
@@ -295,13 +367,16 @@ extension StatusItemController {
         let snapshots = MenuBarVisibilityWatcher.visibilitySnapshots(self.startupVisibilityStatusItems)
         let windowSnapshots = self.statusItemWindowSnapshots()
         let signature = snapshots.map(\.description).joined(separator: " | ")
-        let needsUserGuidance = MenuBarVisibilityWatcher.hasAnyBlockedVisibleSnapshot(snapshots)
+        let needsUserGuidance = MenuBarVisibilityWatcher.hasAnySystemBlockCandidate(snapshots: snapshots)
         let changed = self.lastMenuBarVisibilityWatchdogSignature != signature
         self.lastMenuBarVisibilityWatchdogSignature = signature
-        if self.recoverMissingStatusItemWindowsIfNeeded(
-            reason: "watchdog",
-            windowSnapshots: windowSnapshots)
+        if !self.hasAttemptedWatchdogStatusItemRecovery,
+           self.recoverMissingStatusItemWindowsIfNeeded(
+               reason: "watchdog",
+               windowSnapshots: windowSnapshots,
+               allowsDisplacedWindowRecovery: false)
         {
+            self.hasAttemptedWatchdogStatusItemRecovery = true
             return
         }
         if changed || needsUserGuidance {
@@ -329,7 +404,8 @@ extension StatusItemController {
         let windowSnapshots = self.statusItemWindowSnapshots()
         if self.recoverMissingStatusItemWindowsIfNeeded(
             reason: "startup",
-            windowSnapshots: windowSnapshots)
+            windowSnapshots: windowSnapshots,
+            allowsDisplacedWindowRecovery: true)
         {
             return
         }
@@ -395,7 +471,8 @@ extension StatusItemController {
         let windowSnapshots = self.statusItemWindowSnapshots()
         if self.recoverMissingStatusItemWindowsIfNeeded(
             reason: "screen-change",
-            windowSnapshots: windowSnapshots)
+            windowSnapshots: windowSnapshots,
+            allowsDisplacedWindowRecovery: true)
         {
             return
         }
@@ -471,16 +548,21 @@ extension StatusItemController {
 
     private func recoverMissingStatusItemWindowsIfNeeded(
         reason: String,
-        windowSnapshots: [MenuBarStatusItemWindowSnapshot])
+        windowSnapshots: [MenuBarStatusItemWindowSnapshot],
+        allowsDisplacedWindowRecovery: Bool)
         -> Bool
     {
-        let missingNames = MenuBarVisibilityWatcher.missingVisibleWindowAutosaveNames(
+        let recoveryNames = MenuBarVisibilityWatcher.recoveryAutosaveNames(
             visibleAutosaveNames: self.visibleStatusItemAutosaveNames(),
-            windowSnapshots: windowSnapshots)
-        guard !missingNames.isEmpty else { return false }
+            windowSnapshots: windowSnapshots,
+            mergedAutosaveName: self.statusItem.autosaveName,
+            mergedSnapshot: MenuBarVisibilityWatcher.visibilitySnapshot(self.statusItem),
+            allowsDisplacedWindowRecovery: allowsDisplacedWindowRecovery)
+        guard !recoveryNames.isEmpty else { return false }
         return self.recoverMissingMergedStatusItemWindow(
             reason: reason,
-            missingAutosaveNames: missingNames,
-            windowDiagnostics: self.statusItemWindowDiagnosticsDescription(windowSnapshots))
+            missingAutosaveNames: recoveryNames,
+            windowDiagnostics: self.statusItemWindowDiagnosticsDescription(windowSnapshots),
+            allowsDisplacedWindowRecovery: allowsDisplacedWindowRecovery)
     }
 }

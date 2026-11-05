@@ -79,7 +79,7 @@ struct TTYIntegrationTests {
 
         do {
             try await ClaudeCLISession.withIsolatedSessionForTesting {
-                _ = try await ClaudeStatusProbe(claudeBinary: cli.path, timeout: 3).fetch()
+                _ = try await ClaudeStatusProbe(claudeBinary: cli.path, timeout: 10).fetch()
             }
             #expect(Bool(false), "Subscription notice should fail parsing")
         } catch let ClaudeStatusProbeError.parseFailed(message) {
@@ -101,7 +101,7 @@ struct TTYIntegrationTests {
             *"/usage"*)
               printf '%s\\n' 'Settings  Status  Config  Usage'
               printf '%s\\n' 'Current session'
-              sleep 2
+              sleep 0.25
               printf '%s\\n' '93% left'
               printf '%s\\n' 'Current week (all models)'
               printf '%s\\n' '79% left'

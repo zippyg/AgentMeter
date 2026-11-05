@@ -77,6 +77,27 @@ final class StatusItemMenu: NSMenu {
         }
     }
 
+    nonisolated static func providerSwitcherTabNavigationDirection(
+        for event: NSEvent) -> StatusItemMenuProviderNavigationDirection?
+    {
+        guard event.type == .keyDown, event.keyCode == 48 else { return nil }
+        let relevantModifiers = event.modifierFlags.intersection([
+            .command,
+            .option,
+            .control,
+            .shift,
+            .function,
+        ])
+        switch relevantModifiers {
+        case []:
+            return .next
+        case [.shift]:
+            return .previous
+        default:
+            return nil
+        }
+    }
+
     nonisolated static func providerSelectionIndex(for event: NSEvent) -> Int? {
         guard event.type == .keyDown else { return nil }
         let relevantModifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])

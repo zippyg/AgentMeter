@@ -262,6 +262,9 @@ actor ClaudeCLISession {
         self.cleanup()
     }
 
+    static let probeSettingsArguments = ["--settings", #"{"remoteControlAtStartup":false}"#]
+    static let probeArguments = ["--allowed-tools", "", "--strict-mcp-config"] + probeSettingsArguments
+
     private func ensureStarted(binary: String) throws {
         if let proc = self.process, proc.isRunning, self.binaryPath == binary {
             Self.log.debug("Claude CLI session reused")
@@ -289,10 +292,10 @@ actor ClaudeCLISession {
            let watchdog = TTYCommandRunner.locateBundledHelper("CodexBarClaudeWatchdog")
         {
             proc.executableURL = URL(fileURLWithPath: watchdog)
-            proc.arguments = ["--", binary, "--allowed-tools", ""]
+            proc.arguments = ["--", binary] + Self.probeArguments
         } else {
             proc.executableURL = resolvedURL
-            proc.arguments = ["--allowed-tools", ""]
+            proc.arguments = Self.probeArguments
         }
         proc.standardInput = secondaryHandle
         proc.standardOutput = secondaryHandle

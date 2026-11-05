@@ -453,8 +453,8 @@ struct ClaudeOAuthCredentialsStoreTests {
         }
     }
 
-    @Test
-    func `syncs cache when claude keychain fingerprint changes and token differs`() throws {
+    @Test(arguments: [3600.0, -3600.0])
+    func `syncs cache when claude keychain fingerprint changes and token differs`(cachedExpiry: TimeInterval) throws {
         let service = "com.steipete.codexbar.cache.tests.\(UUID().uuidString)"
         try KeychainCacheStore.withServiceOverrideForTesting(service) {
             try KeychainAccessGate.withTaskOverrideForTesting(false) {
@@ -487,7 +487,7 @@ struct ClaudeOAuthCredentialsStoreTests {
                     let cacheKey = KeychainCacheStore.Key.oauth(provider: .claude)
                     let cachedData = self.makeCredentialsData(
                         accessToken: "cached-token",
-                        expiresAt: Date(timeIntervalSinceNow: 3600))
+                        expiresAt: Date(timeIntervalSinceNow: cachedExpiry))
                     KeychainCacheStore.store(
                         key: cacheKey,
                         entry: ClaudeOAuthCredentialsStore.CacheEntry(data: cachedData, storedAt: Date()))
@@ -534,7 +534,10 @@ struct ClaudeOAuthCredentialsStoreTests {
                                     data: keychainData,
                                     fingerprint: fingerprint2)
                                 {
-                                    try ClaudeOAuthCredentialsStore.load(environment: [:], allowKeychainPrompt: false)
+                                    try ClaudeOAuthCredentialsStore.loadRecord(
+                                        environment: [:],
+                                        allowKeychainPrompt: false,
+                                        allowClaudeKeychainRepairWithoutPrompt: false).credentials
                                 }
                             }
                         }

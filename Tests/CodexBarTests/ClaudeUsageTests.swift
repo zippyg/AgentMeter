@@ -58,7 +58,7 @@ struct ClaudeUsageTests {
             dataSource: .oauth,
             oauthKeychainPromptCooldownEnabled: true)
 
-        let fetchOverride: (@Sendable (String) async throws -> OAuthUsageResponse)? = { _ in usageResponse }
+        let fetchOverride: (@Sendable (String, Bool) async throws -> OAuthUsageResponse)? = { _, _ in usageResponse }
         let delegatedOverride: (@Sendable (
             Date,
             TimeInterval,
@@ -228,7 +228,7 @@ struct ClaudeUsageTests {
             dataSource: .oauth,
             oauthKeychainPromptCooldownEnabled: true)
 
-        let fetchOverride: (@Sendable (String) async throws -> OAuthUsageResponse)? = { _ in usageResponse }
+        let fetchOverride: (@Sendable (String, Bool) async throws -> OAuthUsageResponse)? = { _, _ in usageResponse }
         let delegatedOverride: (@Sendable (Date, TimeInterval, [String: String]) async
             -> ClaudeOAuthDelegatedRefreshCoordinator.Outcome)? = { _, _, _ in
             _ = await delegatedCounter.increment()
@@ -411,7 +411,7 @@ struct ClaudeUsageTests {
             oauthKeychainPromptCooldownEnabled: true,
             allowStartupBootstrapPrompt: true)
 
-        let fetchOverride: (@Sendable (String) async throws -> OAuthUsageResponse)? = { _ in usageResponse }
+        let fetchOverride: (@Sendable (String, Bool) async throws -> OAuthUsageResponse)? = { _, _ in usageResponse }
         let loadCredsOverride: (@Sendable (
             [String: String],
             Bool,
@@ -463,7 +463,7 @@ struct ClaudeUsageTests {
             oauthKeychainPromptCooldownEnabled: false,
             allowBackgroundDelegatedRefresh: true)
 
-        let fetchOverride: (@Sendable (String) async throws -> OAuthUsageResponse)? = { _ in usageResponse }
+        let fetchOverride: (@Sendable (String, Bool) async throws -> OAuthUsageResponse)? = { _, _ in usageResponse }
         let delegatedOverride: (@Sendable (
             Date,
             TimeInterval,
@@ -1078,7 +1078,9 @@ struct ClaudeAutoFetcherCharacterizationTests {
                     let url = try #require(request.url)
                     return Self.makeJSONResponse(url: url, body: "{}")
                 }, operation: {
-                    let fetchOverride: @Sendable (String) async throws -> OAuthUsageResponse = { _ in usageResponse }
+                    let fetchOverride: @Sendable (String, Bool) async throws -> OAuthUsageResponse = { _, _ in
+                        usageResponse
+                    }
                     let snapshot = try await ClaudeUsageFetcher.$fetchOAuthUsageOverride.withValue(
                         fetchOverride,
                         operation: {
@@ -1417,7 +1419,7 @@ extension ClaudeUsageTests {
             oauthKeychainPromptCooldownEnabled: true,
             allowBackgroundDelegatedRefresh: false)
 
-        let fetchOverride: (@Sendable (String) async throws -> OAuthUsageResponse)? = { _ in usageResponse }
+        let fetchOverride: (@Sendable (String, Bool) async throws -> OAuthUsageResponse)? = { _, _ in usageResponse }
         let delegatedOverride: (@Sendable (
             Date,
             TimeInterval,
@@ -1503,5 +1505,37 @@ extension ClaudeUsageTests {
                 })
         }
         #expect(flags.respectPromptCooldownFlags == [true])
+    }
+}
+
+extension ClaudeUsageTests {
+    @Test(arguments: [CodexBarCore.ProviderRuntime.cli, .app], [ProviderInteraction.background, .userInitiated])
+    func oauthVersionDetectionPolicy(runtime: CodexBarCore.ProviderRuntime, interaction: ProviderInteraction) async throws {
+        let fetcher = ClaudeUsageFetcher(
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            environment: [:],
+            runtime: runtime,
+            dataSource: .oauth)
+        let credentials: @Sendable ([String: String], Bool, Bool) async throws -> ClaudeOAuthCredentials = { _, _, _ in
+            ClaudeOAuthCredentials(
+                accessToken: "test-access-token",
+                refreshToken: nil,
+                expiresAt: Date(timeIntervalSinceNow: 3600),
+                scopes: ["user:profile"],
+                rateLimitTier: nil)
+        }
+        let fetch: @Sendable (String, Bool) async throws -> OAuthUsageResponse = { _, detectVersion in
+            #expect(detectVersion == (runtime == .app && interaction == .userInitiated))
+            return try Self.makeOAuthUsageResponse()
+        }
+        _ = try await ProviderInteractionContext.$current.withValue(interaction) {
+            try await ClaudeUsageFetcher.$hasCachedCredentialsOverride.withValue(true) {
+                try await ClaudeUsageFetcher.$loadOAuthCredentialsOverride.withValue(credentials) {
+                    try await ClaudeUsageFetcher.$fetchOAuthUsageOverride.withValue(fetch) {
+                        try await fetcher.loadLatestUsage()
+                    }
+                }
+            }
+        }
     }
 }

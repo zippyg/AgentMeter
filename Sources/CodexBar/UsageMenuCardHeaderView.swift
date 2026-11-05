@@ -44,9 +44,33 @@ struct UsageMenuCardHeaderView: View {
                 }
                 .layoutPriority(1)
                 Spacer()
-                Text(self.model.email).font(.subheadline)
-                    .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
-                    .lineLimit(1).truncationMode(.middle)
+                if let seatName = self.model.seatName, !seatName.isEmpty {
+                    HStack(alignment: .center, spacing: 4) {
+                        if let live = self.model.seatIsLive {
+                            Circle()
+                                .fill(live ? Color.green : Color.red.opacity(0.75))
+                                .frame(width: 7, height: 7)
+                                .accessibilityHidden(true)
+                        }
+                        // "Org · subscription": the subscription is what tells two seats apart, so
+                        // the organisation is what gives way.
+                        Text(seatName).font(.subheadline)
+                            .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
+                            .lineLimit(1).truncationMode(.head)
+                    }
+                } else {
+                    Text(self.model.email).font(.subheadline)
+                        .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                if self.model.seatIsLive == true {
+                    Text("Active").font(.caption2.weight(.semibold))
+                        .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(.secondary.opacity(0.12), in: Capsule())
+                        .fixedSize()
+                        .layoutPriority(2)
+                }
             }
             let liveSubtitle = self.liveSubtitle
             // Keep the geometry AppKit measured for this hosted row. A new error stays one line

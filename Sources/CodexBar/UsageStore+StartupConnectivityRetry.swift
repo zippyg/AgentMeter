@@ -26,12 +26,17 @@ extension UsageStore {
     }
 
     func recordStartupConnectivityRetryableFailure(_ error: Error) {
+        guard self.sessionIsActive else { return }
         guard self.startupConnectivityRetryRefreshActive else { return }
         guard Self.isStartupConnectivityRetryableError(error) else { return }
         self.startupConnectivityRetryNeeded = true
     }
 
     func completeStartupConnectivityRetryPass(currentAttempt: Int) {
+        guard self.sessionIsActive else {
+            self.cancelStartupConnectivityRetry()
+            return
+        }
         guard self.startupConnectivityRetryNeeded else {
             self.cancelStartupConnectivityRetry()
             return
@@ -47,6 +52,7 @@ extension UsageStore {
     }
 
     private func scheduleStartupConnectivityRetry(attempt: Int, delay: TimeInterval) {
+        guard self.sessionIsActive else { return }
         guard self.startupBehavior.automaticallyStartsBackgroundWork ||
             self._test_startupConnectivityRetryScheduled != nil ||
             self._test_startupConnectivityRetrySleepOverride != nil
@@ -60,7 +66,7 @@ extension UsageStore {
             guard let self else { return }
             do {
                 try await self.sleepForStartupConnectivityRetry(delay)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self.sessionIsActive else { return }
                 await self.runRefresh(startupConnectivityRetryAttempt: attempt)
             } catch {
                 return

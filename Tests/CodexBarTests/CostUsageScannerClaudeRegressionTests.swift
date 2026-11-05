@@ -506,6 +506,10 @@ struct CostUsageScannerClaudeRegressionTests {
         #expect(report.data[0].cacheReadTokens == 10)
         #expect(report.data[0].outputTokens == 60)
         #expect(report.data[0].totalTokens == 305)
+        let cached = CostUsageScanner.loadDailyReport(
+            provider: .claude, since: day, until: day, now: day, options: options)
+        #expect(cached.data[0].inputTokens == 210)
+
     }
 
     @Test

@@ -58,10 +58,6 @@ struct AgentMeterDashboardView: View {
         self.model.snapshot
     }
 
-    private var insights: AgentMeterPhoneInsights {
-        AgentMeterPhoneInsights(snapshot: self.snapshot)
-    }
-
     private var selectedRange: AgentMeterUsageRange {
         AgentMeterUsageRange(rawValue: self.usageRangeRawValue) ?? .currentSession
     }
@@ -75,17 +71,24 @@ struct AgentMeterDashboardView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            self.dashboard(referenceDate: context.date)
+        }
+    }
+
+    private func dashboard(referenceDate: Date) -> some View {
+        let insights = AgentMeterPhoneInsights(snapshot: self.snapshot, referenceDate: referenceDate)
+        return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     summaryHeader
                     pairingPanel
                     UsageRangePicker(selection: self.$usageRangeRawValue)
                     InsightsGrid(
-                        insights: self.insights,
+                        insights: insights,
                         range: self.selectedRange,
-                        generatedAt: self.snapshot.generatedAt)
-                    providerGrid
+                        referenceDate: referenceDate)
+                    providerGrid(referenceDate: referenceDate)
                     liveActivityControls
                 }
                 .padding(18)
@@ -241,10 +244,10 @@ struct AgentMeterDashboardView: View {
         return self.isBridgeLive ? .green : .secondary
     }
 
-    private var providerGrid: some View {
+    private func providerGrid(referenceDate: Date) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: self.providerCardMinimumWidth), spacing: 12)], spacing: 12) {
             ForEach(self.snapshot.providers) { provider in
-                ProviderCard(provider: provider, range: self.selectedRange, generatedAt: self.snapshot.generatedAt)
+                ProviderCard(provider: provider, range: self.selectedRange, referenceDate: referenceDate)
             }
         }
     }
@@ -440,7 +443,7 @@ private struct InsightsGrid: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let insights: AgentMeterPhoneInsights
     let range: AgentMeterUsageRange
-    let generatedAt: Date
+    let referenceDate: Date
 
     private var totals: AgentMeterRangeTotals {
         self.insights.totals(for: self.range)
@@ -483,7 +486,7 @@ private struct InsightsGrid: View {
         let text = AgentMeterFormat.resetMetricText(
             resetsAt: reset.resetsAt,
             resetDescription: reset.resetDescription,
-            from: self.generatedAt)
+            from: self.referenceDate)
         return [reset.displayName, text].compactMap(\.self).joined(separator: " ")
     }
 }
@@ -520,17 +523,17 @@ private struct ProviderCard: View {
     @ScaledMetric(relativeTo: .headline) private var wordmarkHeight: CGFloat = 18
     let provider: AgentMeterPhoneProvider
     let range: AgentMeterUsageRange
-    let generatedAt: Date
+    let referenceDate: Date
 
     private var rangeUsage: AgentMeterRangeUsage {
-        self.provider.usage(for: self.range, generatedAt: self.generatedAt)
+        self.provider.usage(for: self.range, generatedAt: self.provider.updatedAt)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 AgentMeterProviderLockup(
-                    providerID: self.provider.id,
+                    providerID: self.provider.usageProviderID,
                     fallbackTitle: self.provider.displayName,
                     iconSize: 22,
                     wordmarkHeight: self.wordmarkHeight)
@@ -541,10 +544,26 @@ private struct ProviderCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
-            ForEach(self.provider.windows) { window in
-                UsageWindowRow(window: window, generatedAt: self.generatedAt)
+            if let label = self.provider.accountDisplayLabel {
+                Text(label).font(.caption).foregroundStyle(.secondary)
             }
-            SelectedRangePanel(provider: self.provider, range: self.range, usage: self.rangeUsage, generatedAt: self.generatedAt)
+            if let spend = self.provider.spend, let used = spend.used {
+                Text("Extra usage: \(used.formatted()) \(spend.currencyCode)")
+                    .font(.caption)
+            }
+            if let credits = self.provider.creditsRemaining {
+                Text("Credits remaining: \(credits.formatted())").font(.caption)
+            }
+            if let used = self.provider.creditsUsed {
+                Text("Credits used (reported history): \(used.formatted())").font(.caption)
+            }
+            ForEach(self.provider.windows) { window in
+                UsageWindowRow(
+                    window: window,
+                    projection: self.provider.paceProjection(for: window, referenceDate: self.referenceDate),
+                    showsTiming: !self.provider.isStale(reference: self.referenceDate),
+                    referenceDate: self.referenceDate)
+            }
             DailyUsageChart(provider: self.provider)
             Divider()
             LazyVGrid(columns: self.valueTileColumns, alignment: .leading, spacing: 10) {
@@ -565,13 +584,15 @@ private struct ProviderCard: View {
     }
 
     private var displayStatus: AgentMeterPhoneProviderStatus {
-        self.provider.displayStatus(reference: Date())
+        self.provider.displayStatus(reference: self.referenceDate)
     }
 }
 
 private struct UsageWindowRow: View {
     let window: AgentMeterPhoneUsageWindow
-    let generatedAt: Date
+    let projection: AgentMeterPaceProjection?
+    let showsTiming: Bool
+    let referenceDate: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -581,14 +602,16 @@ private struct UsageWindowRow: View {
                 Text("\(AgentMeterFormat.percent(self.window.usedPercent)) used")
                     .foregroundStyle(.secondary)
             }
-            PaceProjectionBar(window: self.window, generatedAt: self.generatedAt)
-            if let resetText = AgentMeterFormat.resetText(for: self.window, from: self.generatedAt) {
+            PaceProjectionBar(window: self.window, projection: self.projection)
+            if self.showsTiming,
+               let resetText = AgentMeterFormat.resetText(for: self.window, from: self.referenceDate)
+            {
                 Text(resetText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if let projection = self.window.paceProjection(generatedAt: self.generatedAt) {
-                Text(projection.label)
+            if let projection {
+                Text(projection.label(referenceDate: self.referenceDate))
                     .font(.caption)
                     .foregroundStyle(projection.emptiesBeforeReset ? .orange : .secondary)
             }
@@ -597,44 +620,9 @@ private struct UsageWindowRow: View {
     }
 }
 
-private struct SelectedRangePanel: View {
-    let provider: AgentMeterPhoneProvider
-    let range: AgentMeterUsageRange
-    let usage: AgentMeterRangeUsage
-    let generatedAt: Date
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(self.range.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(AgentMeterFormat.compactNumber(self.usage.tokens)) tokens")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            if let window = self.usage.window {
-                PaceProjectionBar(window: window, generatedAt: self.generatedAt)
-                if let projection = window.paceProjection(generatedAt: self.generatedAt) {
-                    Text(projection.label)
-                        .font(.caption2)
-                        .foregroundStyle(projection.emptiesBeforeReset ? .orange : .secondary)
-                }
-            } else {
-                Text("No quota window in the current snapshot")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(10)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
 private struct PaceProjectionBar: View {
     let window: AgentMeterPhoneUsageWindow
-    let generatedAt: Date
+    let projection: AgentMeterPaceProjection?
 
     private var usedFraction: Double {
         min(max((self.window.usedPercent ?? 0) / 100, 0), 1)
@@ -649,7 +637,7 @@ private struct PaceProjectionBar: View {
                 Capsule()
                     .fill(Color.accentColor)
                     .frame(width: max(4, width * self.usedFraction))
-                if let projection = self.window.paceProjection(generatedAt: self.generatedAt) {
+                if let projection {
                     Rectangle()
                         .fill(projection.emptiesBeforeReset ? Color.orange : Color.secondary)
                         .frame(width: 2)

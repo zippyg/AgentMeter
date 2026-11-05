@@ -13,6 +13,7 @@ extension UsageStore {
         _ = self.errors
         _ = self.lastSourceLabels
         _ = self.lastFetchAttempts
+        _ = self.claudeSwapAccounts
         _ = self.accountSnapshots
         _ = self.codexAccountSnapshots
         _ = self.kiloScopeSnapshots
@@ -60,7 +61,7 @@ extension UsageStore {
                 self.observeSettingsChanges()
                 self.invalidateProviderAvailabilityCache()
                 self.probeLogs = [:]
-                guard self.startupBehavior.automaticallyStartsBackgroundWork else { return }
+                guard self.startupBehavior.automaticallyStartsBackgroundWork, self.sessionIsActive else { return }
                 self.startTimer()
                 self.updateProviderRuntimes()
                 await self.refreshHistoricalDatasetIfNeeded()
@@ -135,10 +136,15 @@ final class UsageStore {
     var errors: [UsageProvider: String] = [:]
     var lastSourceLabels: [UsageProvider: String] = [:]
     var lastFetchAttempts: [UsageProvider: [ProviderFetchAttempt]] = [:]
+    var claudeSwapAccounts: [AgentMeterProviderSnapshot]?
+    @ObservationIgnored var _test_claudeSwapFetch: (@Sendable () async throws -> [AgentMeterProviderSnapshot]?)?
     var accountSnapshots: [UsageProvider: [TokenAccountUsageSnapshot]] = [:]
     var codexAccountSnapshots: [CodexAccountUsageSnapshot] = []
     var kiloScopeSnapshots: [KiloScopeSnapshot] = []
     var tokenSnapshots: [UsageProvider: CostUsageTokenSnapshot] = [:]
+    var sharedCostExportFailures: Set<UsageProvider> = []
+    var overviewTokenSnapshots: [UsageProvider: CostUsageTokenSnapshot] = [:]
+    var importedCostSources: [SharedCostUsage.Source] = []
     var tokenErrors: [UsageProvider: String] = [:]
     var tokenRefreshInFlight: Set<UsageProvider> = []
     var credits: CreditsSnapshot?
@@ -204,6 +210,10 @@ final class UsageStore {
     @ObservationIgnored var _test_agentMeterPhoneSnapshotSaveOverride: (@MainActor (
         AgentMeterPhoneSnapshot) async -> Void)?
     @ObservationIgnored var _test_providerRefreshOverride: (@MainActor (UsageProvider) async -> Void)?
+    @ObservationIgnored var terminateTTYProcessesForSessionQuiesce: @MainActor () -> Void = {
+        TTYCommandRunner.terminateActiveProcessesForSessionQuiesce()
+    }
+
     @ObservationIgnored var _test_tokenUsageRefreshOverride: (@MainActor (UsageProvider, Bool) async -> Void)?
     @ObservationIgnored var _test_providerStatusFetchOverride: (@MainActor (
         UsageProvider) async throws -> ProviderStatus)?
@@ -238,9 +248,10 @@ final class UsageStore {
     @ObservationIgnored var providerRefreshCounts: [UsageProvider: Int] = [:]
     @ObservationIgnored private var providerAvailabilityCache: [UsageProvider: ProviderAvailabilityCacheEntry] = [:]
     @ObservationIgnored var accountInfoCache: [UsageProvider: AccountInfoCacheEntry] = [:]
-    @ObservationIgnored private var timerTask: Task<Void, Never>?
-    @ObservationIgnored private var tokenTimerTask: Task<Void, Never>?
-    @ObservationIgnored private var tokenRefreshSequenceTask: Task<Void, Never>?
+    @ObservationIgnored var timerTask: Task<Void, Never>?
+    @ObservationIgnored var tokenTimerTask: Task<Void, Never>?
+    @ObservationIgnored var tokenRefreshSequenceTask: Task<Void, Never>?
+    @ObservationIgnored var versionDetectionTask: Task<Void, Never>?
     @ObservationIgnored var memoryPressureReliefTask: Task<Void, Never>?
     @ObservationIgnored var startupConnectivityRetryTask: Task<Void, Never>?
     @ObservationIgnored var startupConnectivityRetryNeeded = false
@@ -253,7 +264,7 @@ final class UsageStore {
     @ObservationIgnored var lastStorageRefreshRequestKey: String?
     @ObservationIgnored var lastStorageRefreshAt: Date?
     @ObservationIgnored var managedCodexAccountsForStorageOverride: [ManagedCodexAccount]?
-    @ObservationIgnored private var pathDebugRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var pathDebugRefreshTask: Task<Void, Never>?
     @ObservationIgnored var codexPlanHistoryBackfillTask: Task<Void, Never>?
     @ObservationIgnored let historicalUsageHistoryStore: HistoricalUsageHistoryStore
     @ObservationIgnored let planUtilizationHistoryStore: PlanUtilizationHistoryStore
@@ -273,10 +284,14 @@ final class UsageStore {
     @ObservationIgnored private var hasCompletedInitialRefresh: Bool = false
     @ObservationIgnored private let providerAvailabilityCacheTTL: TimeInterval = 1
     @ObservationIgnored let accountInfoCacheTTL: TimeInterval = 30
-    @ObservationIgnored private let tokenFetchTTL: TimeInterval = 60 * 60
+    @ObservationIgnored private let tokenFetchTTL: TimeInterval = 300
     @ObservationIgnored private let tokenFetchTimeout: TimeInterval = 10 * 60
     @ObservationIgnored let startupBehavior: StartupBehavior
     @ObservationIgnored let planUtilizationPersistenceCoordinator: PlanUtilizationHistoryPersistenceCoordinator
+    @ObservationIgnored let sessionActivityMonitor: SessionActivityMonitor?
+    @ObservationIgnored var sessionIsActive: Bool = true
+    @ObservationIgnored var sessionActivationTask: Task<Void, Never>?
+    @ObservationIgnored var sessionActivityGeneration: UInt64 = 0
 
     init(
         fetcher: UsageFetcher,
@@ -290,6 +305,7 @@ final class UsageStore {
         codexAccountUsageSnapshotStore: (any CodexAccountUsageSnapshotStoring)? = nil,
         sessionQuotaNotifier: any SessionQuotaNotifying = SessionQuotaNotifier(),
         startupBehavior: StartupBehavior = .automatic,
+        sessionActivityMonitor: SessionActivityMonitor? = nil,
         environmentBase: [String: String] = ProcessInfo.processInfo.environment)
     {
         self.codexFetcher = fetcher
@@ -303,6 +319,10 @@ final class UsageStore {
         self.planUtilizationHistoryStore = planUtilizationHistoryStore
         self.sessionQuotaNotifier = sessionQuotaNotifier
         self.startupBehavior = startupBehavior.resolved(isRunningTests: Self.isRunningTestsProcess())
+        self.sessionActivityMonitor = self.startupBehavior.automaticallyStartsBackgroundWork
+            ? (sessionActivityMonitor ?? SessionActivityMonitor())
+            : sessionActivityMonitor
+        self.sessionIsActive = self.sessionActivityMonitor?.isSessionActive ?? true
         self.codexAccountUsageSnapshotStore = codexAccountUsageSnapshotStore ??
             (self.startupBehavior.automaticallyStartsBackgroundWork ? FileCodexAccountUsageSnapshotStore() : nil)
         self.planUtilizationPersistenceCoordinator = PlanUtilizationHistoryPersistenceCoordinator(
@@ -333,30 +353,15 @@ final class UsageStore {
         }
         self.logStartupState()
         self.bindSettings()
+        self.configureSessionActivityMonitoring()
         self.pathDebugInfo = PathDebugSnapshot(
             codexBinary: nil,
             claudeBinary: nil,
             geminiBinary: nil,
             effectivePATH: PathBuilder.effectivePATH(purposes: [.rpc, .tty, .nodeTooling]),
             loginShellPATH: LoginShellPathCache.shared.current?.joined(separator: ":"))
-        guard self.startupBehavior.automaticallyStartsBackgroundWork else { return }
-        self.hydrateCachedTokenSnapshots()
-        self.detectVersions()
-        self.updateProviderRuntimes()
-        Task { @MainActor [weak self] in
-            self?.schedulePathDebugInfoRefresh()
-        }
-        LoginShellPathCache.shared.captureOnce { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.schedulePathDebugInfoRefresh()
-            }
-        }
-        Task { @MainActor [weak self] in
-            await self?.refreshHistoricalDatasetIfNeeded()
-        }
-        Task { await self.refresh() }
-        self.startTimer()
-        self.startTokenTimer()
+        guard self.startupBehavior.automaticallyStartsBackgroundWork, self.sessionIsActive else { return }
+        self.startAutomaticBackgroundWork(reason: "startup")
     }
 
     private static func isRunningTestsProcess() -> Bool {
@@ -501,6 +506,8 @@ final class UsageStore {
 
     private func isProviderAvailable(_ provider: UsageProvider, now: Date) -> Bool {
         guard provider != .codex else { return true }
+        if provider == .claude, self.claudeSwapAccounts != nil ||
+            (!SettingsStore.isRunningTests && ClaudeSwapUsage.executable() != nil) { return true }
 
         let configRevision = self.settings.configRevision
         if let cached = self.providerAvailabilityCache[provider],
@@ -541,7 +548,11 @@ final class UsageStore {
         await runtime.perform(action: action, context: context)
     }
 
-    private func updateProviderRuntimes() {
+    func updateProviderRuntimes() {
+        guard self.sessionIsActive else {
+            self.stopProviderRuntimes()
+            return
+        }
         for (provider, runtime) in self.providerRuntimes {
             let context = ProviderRuntimeContext(provider: provider, settings: self.settings, store: self)
             if self.isEnabled(provider) {
@@ -562,6 +573,7 @@ final class UsageStore {
         startupConnectivityRetryAttempt: Int?,
         coalesceProviderRefreshesOverride: Bool? = nil) async
     {
+        guard self.sessionIsActive else { return }
         guard !self.isRefreshing else { return }
         self.prepareRefreshState()
         let refreshPhase = Self.refreshPhase(hasCompletedInitialRefresh: self.hasCompletedInitialRefresh)
@@ -609,10 +621,12 @@ final class UsageStore {
             }
 
             if !forceTokenUsage {
+                guard self.sessionIsActive else { return }
                 self.scheduleCreditsRefreshIfNeeded(minimumSnapshotUpdatedAt: refreshStartedAt)
             }
 
             if forceTokenUsage {
+                guard self.sessionIsActive else { return }
                 await self.refreshTokenUsageSequenceNow(force: true)
             } else {
                 // Token-cost usage can be slow; run it outside regular/menu-open refreshes so we don't block UI.
@@ -622,6 +636,7 @@ final class UsageStore {
             // OpenAI web scrape depends on the current Codex account email (which can change after login/account
             // switch). Run this after Codex usage refresh so we don't accidentally scrape with stale credentials.
             self.syncOpenAIWebState()
+            guard self.sessionIsActive else { return }
             let refreshPolicy = OpenAIWebRefreshPolicyContext(
                 accessEnabled: self.isEnabled(.codex) &&
                     self.settings.openAIWebAccessEnabled &&
@@ -652,6 +667,7 @@ final class UsageStore {
             }
 
             if forceTokenUsage, self.openAIDashboardRequiresLogin {
+                guard self.sessionIsActive else { return }
                 await self.refreshProvider(.codex)
                 await self.refreshCreditsNow(minimumSnapshotUpdatedAt: refreshStartedAt)
             }
@@ -687,8 +703,9 @@ final class UsageStore {
         self.observeSettingsChanges()
     }
 
-    private func startTimer() {
+    func startTimer() {
         self.timerTask?.cancel()
+        guard self.sessionIsActive else { return }
         guard let wait = self.settings.refreshFrequency.seconds else { return }
 
         // Background poller so the menu stays responsive; canceled when settings change or store deallocates.
@@ -700,8 +717,9 @@ final class UsageStore {
         }
     }
 
-    private func startTokenTimer() {
+    func startTokenTimer() {
         self.tokenTimerTask?.cancel()
+        guard self.sessionIsActive else { return }
         let wait = self.tokenFetchTTL
         self.tokenTimerTask = Task.detached(priority: .utility) { [weak self] in
             while !Task.isCancelled {
@@ -712,6 +730,7 @@ final class UsageStore {
     }
 
     private func scheduleTokenRefresh(force: Bool) {
+        guard self.sessionIsActive else { return }
         if force {
             self.tokenRefreshSequenceTask?.cancel()
             self.tokenRefreshSequenceTask = nil
@@ -741,21 +760,33 @@ final class UsageStore {
     }
 
     private func refreshTokenUsageSequence(force: Bool) async {
-        for provider in self.enabledProvidersForBackgroundWork() {
+        guard self.sessionIsActive else { return }
+        let providers = self.enabledProvidersForBackgroundWork()
+        if self.settings.costUsageEnabled {
+            self.importedCostSources = await Task.detached(priority: .utility) {
+                SharedCostUsage.importedSources()
+            }.value
+        }
+        for provider in providers {
             if Task.isCancelled { break }
+            if !self.sessionIsActive { break }
             await self.refreshTokenUsage(provider, force: force)
         }
-        self.scheduleMemoryPressureRelief()
+        if self.sessionIsActive {
+            self.scheduleMemoryPressureRelief()
+        }
     }
 
     deinit {
         self.timerTask?.cancel()
         self.tokenTimerTask?.cancel()
         self.tokenRefreshSequenceTask?.cancel()
+        self.versionDetectionTask?.cancel()
         self.memoryPressureReliefTask?.cancel()
         self.startupConnectivityRetryTask?.cancel()
         self.storageRefreshTask?.cancel()
         self.codexPlanHistoryBackfillTask?.cancel()
+        self.sessionActivationTask?.cancel()
     }
 
     enum SessionQuotaWindowSource: String {
@@ -1376,11 +1407,13 @@ extension UsageStore {
         }
     }
 
-    private func detectVersions() {
+    func detectVersions() {
+        guard self.sessionIsActive else { return }
         let implementations = ProviderCatalog.all
         let browserDetection = self.browserDetection
-        Task { @MainActor [weak self] in
-            let resolved = await Task.detached { () -> [UsageProvider: String] in
+        self.versionDetectionTask?.cancel()
+        self.versionDetectionTask = Task { @MainActor [weak self] in
+            let detectionTask = Task.detached { () -> [UsageProvider: String] in
                 var resolved: [UsageProvider: String] = [:]
                 await withTaskGroup(of: (UsageProvider, String?).self) { group in
                     for implementation in implementations {
@@ -1397,13 +1430,21 @@ extension UsageStore {
                     }
                 }
                 return resolved
-            }.value
-            self?.versions = resolved
+            }
+            let resolved = await withTaskCancellationHandler {
+                await detectionTask.value
+            } onCancel: {
+                detectionTask.cancel()
+            }
+            guard let self, !Task.isCancelled, self.sessionIsActive else { return }
+            self.versions = resolved
+            self.versionDetectionTask = nil
         }
     }
 
     @MainActor
-    private func schedulePathDebugInfoRefresh() {
+    func schedulePathDebugInfoRefresh() {
+        guard self.sessionIsActive else { return }
         self.pathDebugRefreshTask?.cancel()
         self.pathDebugRefreshTask = Task { [weak self] in
             do {
@@ -1420,19 +1461,32 @@ extension UsageStore {
     {
         let result = await snapshot()
         await MainActor.run {
+            guard self.sessionIsActive else { return }
             self.pathDebugInfo = result
         }
     }
 
     private func refreshPathDebugInfo() async {
+        guard self.sessionIsActive else { return }
         await self.runBackgroundSnapshot {
             await PathBuilder.debugSnapshotAsync(purposes: [.rpc, .tty, .nodeTooling])
         }
     }
 
     private func refreshTokenUsage(_ provider: UsageProvider, force: Bool) async {
+        guard self.sessionIsActive else { return }
         guard ProviderDescriptorRegistry.descriptor(for: provider).tokenCost.supportsTokenCost else {
             self.tokenSnapshots.removeValue(forKey: provider)
+            self.tokenErrors[provider] = nil
+            self.tokenFailureGates[provider]?.reset()
+            self.lastTokenFetchAt.removeValue(forKey: provider)
+            self.lastTokenFetchScope.removeValue(forKey: provider)
+            return
+        }
+
+        guard self.settings.costUsageEnabled, self.isEnabled(provider) else {
+            self.tokenSnapshots.removeValue(forKey: provider)
+            self.overviewTokenSnapshots.removeValue(forKey: provider)
             self.tokenErrors[provider] = nil
             self.tokenFailureGates[provider]?.reset()
             self.lastTokenFetchAt.removeValue(forKey: provider)
@@ -1456,24 +1510,6 @@ extension UsageStore {
                 self.tokenErrors[provider] = nil
                 self.tokenFailureGates[provider]?.reset()
             }
-            return
-        }
-
-        guard self.settings.costUsageEnabled else {
-            self.tokenSnapshots.removeValue(forKey: provider)
-            self.tokenErrors[provider] = nil
-            self.tokenFailureGates[provider]?.reset()
-            self.lastTokenFetchAt.removeValue(forKey: provider)
-            self.lastTokenFetchScope.removeValue(forKey: provider)
-            return
-        }
-
-        guard self.isEnabled(provider) else {
-            self.tokenSnapshots.removeValue(forKey: provider)
-            self.tokenErrors[provider] = nil
-            self.tokenFailureGates[provider]?.reset()
-            self.lastTokenFetchAt.removeValue(forKey: provider)
-            self.lastTokenFetchScope.removeValue(forKey: provider)
             return
         }
 
@@ -1510,14 +1546,12 @@ extension UsageStore {
                     settings: self.settings,
                     tokenOverride: nil)
                 : self.environmentBase
-            // Codex cost usage scans local session logs from this machine. That data is
-            // intentionally presented as provider-level local telemetry rather than managed-account
-            // remote state, so managed Codex account selection does not retarget that fetch.
-            // If the UI later needs account-scoped token history, it should label and source that
-            // separately instead of silently changing the meaning of this section.
-            let snapshot = try await withThrowingTaskGroup(of: CostUsageTokenSnapshot.self) { group in
+            let codexHomes = provider == .codex
+                ? try self.settings.codexCostHomePaths(environment: environment) : []
+            let (snapshot, overview) = try await withThrowingTaskGroup(
+                of: (CostUsageTokenSnapshot, CostUsageTokenSnapshot?).self) { group in
                 group.addTask(priority: .utility) {
-                    try await fetcher.loadTokenSnapshot(
+                    let snapshot = try await fetcher.loadTokenSnapshot(
                         provider: provider,
                         environment: environment,
                         now: now,
@@ -1525,6 +1559,11 @@ extension UsageStore {
                         allowVertexClaudeFallback: !self.isEnabled(.claude),
                         codexHomePath: costScope.codexHomePath,
                         historyDays: historyDays)
+                    let overview = provider == .codex || provider == .claude
+                        ? try await fetcher.loadTokenSnapshot(
+                            provider: provider, environment: environment, now: now, forceRefresh: force,
+                            historyDays: max(30, historyDays), codexHomePaths: codexHomes) : nil
+                    return (snapshot, overview)
                 }
                 group.addTask {
                     try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
@@ -1535,6 +1574,21 @@ extension UsageStore {
                 return snapshot
             }
 
+            guard self.sessionIsActive, self.settings.costUsageEnabled, self.isEnabled(provider) else { return }
+            if provider == .claude || provider == .codex {
+                self.overviewTokenSnapshots[provider] = overview ?? snapshot
+                do {
+                    self.importedCostSources = try await SharedCostUsageExchange.shared.publish(
+                        provider: provider, snapshot: overview ?? snapshot,
+                        enabledProviders: Set([UsageProvider.claude, .codex].filter { self.isEnabled($0) }))
+                    self.sharedCostExportFailures.remove(provider)
+                    self.persistUsageExport()
+                } catch {
+                    self.sharedCostExportFailures.insert(provider)
+                    self.tokenCostLogger.error("Shared daily usage export failed")
+                    self.importedCostSources = SharedCostUsage.importedSources()
+                }
+            }
             guard !snapshot.daily.isEmpty else {
                 self.tokenSnapshots.removeValue(forKey: provider)
                 self.tokenErrors[provider] = Self.tokenCostNoDataMessage(for: provider)

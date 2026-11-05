@@ -10,7 +10,8 @@ enum CostUsageCacheIO {
         case .codex:
             8
         case .claude, .vertexai:
-            4
+            // 7: persist the final account marker, including markers after the last usage row.
+            7
         default:
             1
         }
@@ -128,6 +129,7 @@ struct CostUsageFileUsage: Codable {
     var size: Int64
     var days: [String: [String: [Int]]]
     var parsedBytes: Int64?
+    var finalClaudeAccount: String?
     var lastModel: String?
     var lastTotals: CostUsageCodexTotals?
     var lastCountedTotals: CostUsageCodexTotals?

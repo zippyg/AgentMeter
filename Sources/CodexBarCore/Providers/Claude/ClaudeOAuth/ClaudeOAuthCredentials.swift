@@ -278,14 +278,22 @@ public enum ClaudeOAuthCredentialsStore {
                     lastError = error
                 }
 
-                if allowClaudeKeychainRepairWithoutPrompt, !allowKeychainPrompt {
-                    if let repaired = recovery.repairFromClaudeKeychainWithoutPromptIfAllowed(
-                        now: Date(),
-                        respectKeychainPromptCooldown: shouldRespectKeychainPromptCooldownForSilentProbes,
-                        allowCacheKeychainWrite: !cacheTemporarilyUnavailable)
-                    {
-                        return repaired
-                    }
+                if !cacheTemporarilyUnavailable, let expiredRecord,
+                   recovery.shouldAttemptFreshnessSyncFromClaudeKeychain(cached: expiredRecord),
+                   let synced = recovery.syncWithClaudeKeychainIfChanged(
+                       cached: expiredRecord,
+                       respectKeychainPromptCooldown: shouldRespectKeychainPromptCooldownForSilentProbes)
+                {
+                    return synced
+                }
+
+                if allowClaudeKeychainRepairWithoutPrompt, !allowKeychainPrompt,
+                   let repaired = recovery.repairFromClaudeKeychainWithoutPromptIfAllowed(
+                       now: Date(),
+                       respectKeychainPromptCooldown: shouldRespectKeychainPromptCooldownForSilentProbes,
+                       allowCacheKeychainWrite: !cacheTemporarilyUnavailable)
+                {
+                    return repaired
                 }
 
                 if let prompted = self.loadFromClaudeKeychainWithPromptIfAllowed(
@@ -632,7 +640,6 @@ public enum ClaudeOAuthCredentialsStore {
         let context: CollaboratorContext
 
         func shouldAttemptFreshnessSyncFromClaudeKeychain(cached: ClaudeOAuthCredentialRecord) -> Bool {
-            guard !cached.credentials.isExpired else { return false }
             guard cached.owner == .claudeCLI else { return false }
             guard ClaudeOAuthCredentialsStore.keychainAccessAllowed else { return false }
 
@@ -696,7 +703,7 @@ public enum ClaudeOAuthCredentialsStore {
                 ClaudeOAuthCredentialsStore.saveClaudeKeychainFingerprint(currentFingerprint)
 
                 guard keychainCreds.accessToken != cached.credentials.accessToken else { return nil }
-                if keychainCreds.isExpired, !cached.credentials.isExpired { return nil }
+                guard !keychainCreds.isExpired else { return nil }
 
                 ClaudeOAuthCredentialsStore.log.info("Claude keychain credentials changed; syncing OAuth cache")
                 let synced = ClaudeOAuthCredentialRecord(
@@ -1019,13 +1026,11 @@ public enum ClaudeOAuthCredentialsStore {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-            var components = URLComponents()
-            components.queryItems = [
-                URLQueryItem(name: "grant_type", value: "refresh_token"),
-                URLQueryItem(name: "refresh_token", value: refreshToken),
-                URLQueryItem(name: "client_id", value: ClaudeOAuthCredentialsStore.oauthClientID),
-            ]
-            request.httpBody = (components.percentEncodedQuery ?? "").data(using: .utf8)
+            request.httpBody = FormURLEncoding.body([
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refreshToken),
+                ("client_id", ClaudeOAuthCredentialsStore.oauthClientID),
+            ])
 
             let response = try await ProviderHTTPClient.shared.response(for: request)
             let data = response.data

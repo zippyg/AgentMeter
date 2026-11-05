@@ -10,11 +10,11 @@ extension UsageStore {
         let generatedAt = snapshot.generatedAt
         let nextRefreshAt = self.agentMeterNextRefreshAt(generatedAt: generatedAt)
         let snapshotSequence = AgentMeterSnapshotSequenceStore.next()
-        let rawAgentMeterSnapshot = AgentMeterSnapshot(
+        let rawAgentMeterSnapshot = self.claudeSwapSnapshot(AgentMeterSnapshot(
             widgetSnapshot: snapshot,
             snapshotSequence: snapshotSequence,
             producer: AgentMeterSnapshotProducer.current(),
-            nextRefreshAt: nextRefreshAt)
+            nextRefreshAt: nextRefreshAt), nextRefreshAt: nextRefreshAt)
         let previousAgentMeterSnapshot = snapshot.entries.isEmpty && !snapshot.enabledProviders.isEmpty
             ? self.loadPreviousAgentMeterSnapshotForTransientEmptyRepair()
             : nil
@@ -87,6 +87,7 @@ extension UsageStore {
         let tokenUsage = Self.widgetTokenUsageSummary(from: tokenSnapshot, provider: provider)
         let usageRows = self.widgetUsageRows(provider: provider, snapshot: snapshot)
 
+        let creditsUsed: Double?
         let creditsRemaining: Double?
         let codeReviewRemaining: Double?
         if provider == .codex {
@@ -95,9 +96,12 @@ extension UsageStore {
                 snapshotOverride: snapshot,
                 now: snapshot.updatedAt)
             let displayOnlyExtrasHidden = projection.dashboardVisibility == .displayOnly
+            let events = displayOnlyExtrasHidden ? nil : projection.credits?.snapshot?.events
+            creditsUsed = events.flatMap { $0.isEmpty ? nil : $0.reduce(0) { $0 + $1.creditsUsed } }
             creditsRemaining = displayOnlyExtrasHidden ? nil : projection.credits?.remaining
             codeReviewRemaining = displayOnlyExtrasHidden ? nil : projection.remainingPercent(for: .codeReview)
         } else {
+            creditsUsed = nil
             creditsRemaining = nil
             codeReviewRemaining = nil
         }
@@ -109,6 +113,8 @@ extension UsageStore {
             secondary: snapshot.secondary,
             tertiary: snapshot.tertiary,
             usageRows: usageRows,
+            providerCost: snapshot.providerCost,
+            creditsUsed: creditsUsed,
             creditsRemaining: creditsRemaining,
             codeReviewRemainingPercent: codeReviewRemaining,
             tokenUsage: tokenUsage,
@@ -197,6 +203,13 @@ extension UsageStore {
                 id: "tertiary",
                 title: metadata?.opusLabel ?? "Opus",
                 percentLeft: snapshot.tertiary?.remainingPercent))
+        }
+        var seenIDs = Set(rows.map(\.id))
+        for extra in snapshot.extraRateWindows ?? [] where extra.usageKnown && seenIDs.insert(extra.id).inserted {
+            rows.append(WidgetSnapshot.WidgetUsageRowSnapshot(
+                id: extra.id,
+                title: extra.title,
+                percentLeft: extra.window.remainingPercent))
         }
         return rows.filter { $0.percentLeft != nil }
     }

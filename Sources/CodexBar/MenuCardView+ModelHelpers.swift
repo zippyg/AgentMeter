@@ -367,6 +367,29 @@ extension UsageMenuCardView.Model {
         return metrics
     }
 
+    static func claudeSwapMetric(_ metric: Metric, input: Input) -> Metric {
+        guard let account = input.claudeSwapAccount, metric.id != "primary" else { return metric }
+        let id = metric.id == "secondary" ? "weekly" : metric.id
+        guard let window = account.windows.first(where: { $0.id == id }) else { return metric }
+        let pace = account.status == .ok && (account.staleAfter.map { $0 > input.now } ?? true)
+            ? window.feedPace?.usagePace(usedPercent: window.usedPercent ?? 0, now: input.now) : nil
+        let detail = pace.map { UsagePaceText.weeklyDetail(pace: $0, now: input.now) }
+        return Metric(
+            id: metric.id,
+            title: id.hasPrefix("model:") ? "\(metric.title) (weekly)" : metric.title,
+            percent: metric.percent,
+            percentStyle: metric.percentStyle,
+            statusText: metric.statusText,
+            resetText: metric.resetText,
+            detailText: metric.detailText,
+            detailLeftText: detail?.leftLabel,
+            detailRightText: detail?.rightLabel,
+            pacePercent: pace.map { input.usageBarsShowUsed ? $0.expectedUsedPercent : 100 - $0.expectedUsedPercent },
+            paceOnTop: pace.map { $0.actualUsedPercent <= $0.expectedUsedPercent } ?? true,
+            warningMarkerPercents: metric.warningMarkerPercents,
+            cardStyle: metric.cardStyle)
+    }
+
     static func extraRateWindowMetrics(
         snapshot: UsageSnapshot,
         input: Input,

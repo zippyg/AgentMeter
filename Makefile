@@ -1,14 +1,18 @@
 SHELL := /bin/bash
 
+# Swift 6.4's default build system rejects this package (duplicatedTargetIdentifier for the
+# resource bundle). The native build system builds it. Override with SWIFT_BUILD_FLAGS= to try the default.
+SWIFT_BUILD_FLAGS ?= --build-system native
+
 .PHONY: build check format lint release restart start start-debug start-release stop test test-live test-tty
 
 start:
-	swift run AgentMeter
+	swift run $(SWIFT_BUILD_FLAGS) AgentMeter
 
 start-debug: start
 
 start-release:
-	swift build -c release --product AgentMeter
+	swift build $(SWIFT_BUILD_FLAGS) -c release --product AgentMeter
 	./Scripts/agentmeter_package_local_app.sh
 	./Scripts/agentmeter_install_local_artifact.sh
 
@@ -24,17 +28,17 @@ format:
 	./Scripts/lint.sh format
 
 build:
-	swift build
+	swift build $(SWIFT_BUILD_FLAGS)
 
 test:
-	swift test
+	swift test $(SWIFT_BUILD_FLAGS)
 
 test-tty:
-	swift test --filter TTYIntegrationTests
+	swift test $(SWIFT_BUILD_FLAGS) --filter TTYIntegrationTests
 
 test-live:
-	LIVE_TEST=1 swift test --filter LiveAccountTests
+	LIVE_TEST=1 swift test $(SWIFT_BUILD_FLAGS) --filter LiveAccountTests
 
 release:
-	swift build -c release --product AgentMeter
+	swift build $(SWIFT_BUILD_FLAGS) -c release --product AgentMeter
 	./Scripts/agentmeter_package_local_app.sh

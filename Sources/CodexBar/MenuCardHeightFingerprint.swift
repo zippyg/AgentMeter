@@ -117,7 +117,7 @@ extension UsageMenuCardView.Model.TokenUsageSection {
 }
 
 extension InlineUsageDashboardModel {
-    fileprivate var heightFingerprint: String {
+    var heightFingerprint: String {
         MenuCardHeightFingerprint.join([
             MenuCardHeightFingerprint.field("accessibility", self.accessibilityLabel),
             self.valueStyle.heightFingerprint,

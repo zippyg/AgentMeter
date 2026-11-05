@@ -29,16 +29,29 @@ struct AgentMeterActivitySnapshot: Codable, Hashable {
 struct AgentMeterActivityProvider: Codable, Hashable, Identifiable {
     var id: String
     var displayName: String
+    var providerID: String?
+    var isActiveCLI: Bool?
     var sessionWindow: AgentMeterActivityWindow?
     var weeklyWindow: AgentMeterActivityWindow?
     var status: String
+    var updatedAt: Date?
+    var staleAfter: Date?
 
     init(provider: AgentMeterPhoneProvider) {
         self.id = provider.id
-        self.displayName = provider.displayName
+        self.displayName = [provider.displayName, provider.accountDisplayLabel].compactMap { $0 }.joined(separator: " · ")
+        self.providerID = provider.usageProviderID
+        self.isActiveCLI = provider.isActiveCLI
         self.sessionWindow = provider.primaryWindow.map(AgentMeterActivityWindow.init(window:))
         self.weeklyWindow = provider.weeklyWindow.map(AgentMeterActivityWindow.init(window:))
         self.status = provider.status.rawValue
+        self.updatedAt = provider.updatedAt
+        self.staleAfter = provider.staleAfter
+    }
+
+    func isStale(reference: Date, activityIsStale: Bool = false) -> Bool {
+        activityIsStale || self.status == AgentMeterPhoneProviderStatus.stale.rawValue ||
+            (self.staleAfter.map { $0 <= reference } ?? false)
     }
 }
 

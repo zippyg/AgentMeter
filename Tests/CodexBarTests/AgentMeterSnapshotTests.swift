@@ -29,6 +29,14 @@ struct AgentMeterSnapshotTests {
             tertiary: nil,
             usageRows: [
                 WidgetSnapshot.WidgetUsageRowSnapshot(
+                    id: "primary",
+                    title: "Session",
+                    percentLeft: 58),
+                WidgetSnapshot.WidgetUsageRowSnapshot(
+                    id: "secondary",
+                    title: "Weekly",
+                    percentLeft: 88),
+                WidgetSnapshot.WidgetUsageRowSnapshot(
                     id: "codeReview",
                     title: "Code review",
                     percentLeft: 75),
@@ -50,7 +58,7 @@ struct AgentMeterSnapshotTests {
             producer: producer,
             nextRefreshAt: nextRefreshAt)
 
-        #expect(snapshot.schemaVersion == 2)
+        #expect(snapshot.schemaVersion == 3)
         #expect(snapshot.snapshotSequence == 42)
         #expect(snapshot.producer == producer)
         let provider = try #require(snapshot.providers.first)
@@ -303,7 +311,7 @@ struct AgentMeterSnapshotTests {
 
         #expect(AgentMeterSnapshotNotification.name == "com.zain.agentmeter.snapshot.updated")
         #expect(payload["path"] as? String == "/tmp/agentmeter-summary.json")
-        #expect(payload["schemaVersion"] as? Int == 2)
+        #expect(payload["schemaVersion"] as? Int == 3)
         #expect(payload["snapshotSequence"] as? Int == 42)
         #expect((payload["generatedAt"] as? String)?.isEmpty == false)
         #expect(!String(describing: payload).localizedCaseInsensitiveContains("token"))

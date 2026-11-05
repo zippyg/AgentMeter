@@ -5,6 +5,13 @@ import Testing
 @testable import CodexBarCLI
 
 struct CLICostTests {
+    @Test func sharedExportArguments() throws {
+        let parser = CommandParser(signature: CodexBarCLI._costSignatureForTesting())
+        let parsed = try parser.parse(arguments: ["--export-shared", "--export-path", "/tmp/usage-test.json"])
+        #expect(parsed.flags.contains("exportShared"))
+        #expect(parsed.options["exportPath"] == ["/tmp/usage-test.json"])
+    }
+
     @Test
     func `cost json shortcut does not enable json logs`() throws {
         let signature = CodexBarCLI._costSignatureForTesting()

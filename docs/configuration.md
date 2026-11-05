@@ -1,22 +1,21 @@
 ---
-summary: "AgentMeter config file layout for CLI and app settings."
+summary: "CodexBar config file layout for CLI + app settings."
 read_when:
-  - "Editing the AgentMeter config file or moving settings off Keychain."
+  - "Editing the CodexBar config file or moving settings off Keychain."
   - "Adding new provider settings fields or defaults."
   - "Explaining CLI/app configuration and security."
 ---
 
 # Configuration
 
-AgentMeter reads a single JSON config file for CLI and app provider settings.
+CodexBar reads a single JSON config file for CLI and app provider settings.
 API keys, manual cookie headers, source selection, ordering, and token accounts live here. Keychain is still used for runtime cookie caches, browser Safe Storage access, and provider OAuth/device-flow credentials where those flows require it.
 
 ## Location
 - `~/.codexbar/config.json`
 - Override for scripts/tests: set `CODEXBAR_CONFIG=/path/to/config.json`.
 - The directory is created if missing.
-- Permissions are set to `0600` whenever AgentMeter writes the file on macOS and Linux.
-- The inherited CLI binary and compatibility path are still named `codexbar`.
+- Permissions are set to `0600` whenever CodexBar writes the file on macOS and Linux.
 
 ## Root shape
 ```json
@@ -61,7 +60,7 @@ All provider fields are optional unless noted.
 ## Manual cookies
 Use manual cookies when automatic browser import is unavailable, disabled, or too noisy for your setup.
 The app and CLI both read the same `~/.codexbar/config.json`, so a manual cookie saved in the UI is also used by
-the inherited `codexbar` CLI, and a cookie written by tooling is shown in the app after reload.
+`codexbar`, and a cookie written by tooling is shown in the app after reload.
 
 `cookieHeader` expects the HTTP `Cookie:` request header value for the provider origin, not a raw Netscape cookie
 export. In browser DevTools, open the Network tab, select a request for the provider site, and copy the request

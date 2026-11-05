@@ -698,7 +698,7 @@ public struct OpenAIDashboardFetcher {
     }
 
     nonisolated static func dashboardUsageAPIRequest(cookieHeader: String) -> URLRequest {
-        var request = URLRequest(url: Self.dashboardUsageAPIURL)
+        var request = URLRequest(url: Self.dashboardUsageAPIURL, cachePolicy: .reloadIgnoringLocalCacheData)
         request.httpMethod = "GET"
         request.timeoutInterval = 4
         request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
@@ -708,10 +708,14 @@ public struct OpenAIDashboardFetcher {
         return request
     }
 
-    nonisolated static func dashboardIdentityAPIRequest(url: URL, cookieHeader: String) -> URLRequest {
-        var request = URLRequest(url: url)
+    nonisolated static func dashboardIdentityAPIRequest(
+        url: URL,
+        cookieHeader: String,
+        timeout: TimeInterval = 2) -> URLRequest
+    {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.httpMethod = "GET"
-        request.timeoutInterval = 2
+        request.timeoutInterval = timeout
         request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(Self.dashboardAcceptLanguage, forHTTPHeaderField: "Accept-Language")
@@ -756,14 +760,14 @@ public struct OpenAIDashboardFetcher {
         return await self.fetchDashboardUsageAPI(cookieHeader: cookieHeader, logger: logger)
     }
 
-    private static func fetchDashboardUsageAPI(
+    static func fetchDashboardUsageAPI(
         cookieHeader: String,
         logger: @escaping (String) -> Void) async -> DashboardAPIData?
     {
         guard !cookieHeader.isEmpty else { return nil }
 
         do {
-            let (data, response) = try await ProviderHTTPClient.shared.data(
+            let (data, response) = try await CodexAuthenticatedHTTPTransport.current.data(
                 for: self.dashboardUsageAPIRequest(cookieHeader: cookieHeader))
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             logger("usage api status=\(status)")
@@ -780,7 +784,7 @@ public struct OpenAIDashboardFetcher {
         }
     }
 
-    private static func fetchSignedInEmailFromAPI(
+    static func fetchSignedInEmailFromAPI(
         cookieHeader: String,
         logger: @escaping (String) -> Void) async -> String?
     {
@@ -793,7 +797,7 @@ public struct OpenAIDashboardFetcher {
 
         for url in endpoints {
             do {
-                let (data, response) = try await ProviderHTTPClient.shared.data(
+                let (data, response) = try await CodexAuthenticatedHTTPTransport.current.data(
                     for: self.dashboardIdentityAPIRequest(url: url, cookieHeader: cookieHeader))
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 logger("identity api \(url.path) status=\(status)")

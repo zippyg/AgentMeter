@@ -30,6 +30,12 @@ AgentMeter is a fork of [CodexBar](https://github.com/steipete/CodexBar) by Pete
 - Keychain-backed pairing and provider credential storage.
 - AgentMeter identity, icon, docs, app packaging, and source-release cleanup.
 - Claude/Codex-first defaults with source-confidence labels for brittle provider data.
+- Several Claude subscriptions on one Mac: with [claude-swap](https://github.com/realiti4/claude-swap)
+  installed, every account gets its own limit card, and 30-day token use is split per subscription.
+- Stale readings say how old they are and why, for example "Last reading 2d ago; Anthropic is
+  rate-limiting the usage check; retry 16:51", and a limit whose reset has passed reads 0.
+- A private usage file other tools can read: 30-day totals by user, subscription, model and token
+  type. See [docs/usage-export.md](docs/usage-export.md).
 
 ## Screenshots
 
@@ -53,32 +59,91 @@ AgentMeter is a fork of [CodexBar](https://github.com/steipete/CodexBar) by Pete
 
 These screenshots show the real app with sensitive values redacted.
 
-## Quick start
+## Install
 
-Requirements:
+There is no prebuilt download. You build AgentMeter from source and sign it on your own Mac, which
+takes about five minutes and needs no paid Apple account. Pick one route.
 
-- macOS 14 or newer.
-- Xcode command line tools: `xcode-select --install`.
-- Xcode if you want to build the iPhone app to a device.
+### Route 1: ask your coding agent
 
-After cloning:
+Paste this into Claude Code, Codex or any agent that can run shell commands on your Mac:
+
+```text
+Install AgentMeter on this Mac from source, from https://github.com/zippyg/AgentMeter.
+
+1. Check macOS is 14 or newer (sw_vers). Check the Xcode command line tools exist
+   (xcode-select -p). If they are missing, tell me to run `xcode-select --install`
+   and wait for me; do not try to click through the installer yourself.
+2. Clone the repo into ~/Developer/AgentMeter (or update it with git pull if it is
+   already there) and cd into it.
+3. Build and test with the native build system, which this package needs:
+     swift build --build-system native -c release --product AgentMeter
+     swift test --build-system native --filter AgentMeter
+   If the build fails, show me the first error and stop.
+4. Package, install and verify:
+     ./Scripts/agentmeter_package_local_app.sh
+     ./Scripts/agentmeter_install_local_artifact.sh
+     ./Scripts/agentmeter_verify_local_app.sh /Applications/AgentMeter.app
+   The package script signs with my Apple Development certificate if I have one,
+   otherwise it signs locally (ad-hoc), which is fine for my own Mac. If macOS
+   shows a Keychain prompt for codesign, tell me to approve it; never type a
+   password yourself.
+5. Launch it with `open -a /Applications/AgentMeter.app` and tell me to look for
+   the robot icon in the menu bar.
+6. Report the installed version (CFBundleShortVersionString and CFBundleVersion
+   from /Applications/AgentMeter.app/Contents/Info.plist) and the signing
+   authority (codesign -dv /Applications/AgentMeter.app).
+
+Do not change the bundle identifier, do not enable any provider I have not asked
+for, and do not send anything off this Mac.
+```
+
+To update later, ask the agent to run the same steps again; it pulls, rebuilds and replaces the
+app in place.
+
+### Route 2: build it yourself
+
+Requirements: macOS 14 or newer, and the Xcode command line tools (`xcode-select --install`).
 
 ```bash
+git clone https://github.com/zippyg/AgentMeter.git
 cd AgentMeter
+make start-release
+```
 
-swift build
-swift run AgentMeter
+`make start-release` builds the release binary, packages `AgentMeter.app`, signs it, verifies it
+and installs it to `/Applications`. Then open it:
+
+```bash
+open -a /Applications/AgentMeter.app
 ```
 
 AgentMeter has no Dock icon. Click the robot in the menu bar to open the dashboard.
 
-For a local packaged app:
+To try it without installing, run `make start` (a debug build straight from the source tree).
 
-```bash
-make start-release
-```
+### How signing works
 
-That builds the release binary, packages `AgentMeter.app`, verifies it, and installs it to `/Applications`.
+You never need a paid Apple Developer account to run AgentMeter on your own Mac.
+
+| You have | What happens |
+| --- | --- |
+| No certificate | Signed ad-hoc. Runs on this Mac only. |
+| Free or paid Apple Development certificate in Xcode | Signed with it automatically. |
+| A specific identity you want | `AGENTMETER_CODESIGN_IDENTITY="Apple Development: Your Name (TEAMID)" make start-release` |
+
+List your identities with `security find-identity -v -p codesigning`. If macOS asks to let
+`codesign` use a key in your Keychain, choose Always Allow.
+
+Keep signing with the same identity once installed. Switching identity makes macOS treat it as a
+different app, so it may ask again for Keychain and Local Network access, and the iPhone app may
+need pairing again.
+
+### Why `--build-system native`
+
+Swift 6.4's default build system rejects this package (`duplicatedTargetIdentifier` on the
+resource bundle). The Makefile passes `--build-system native` for you. If you call `swift`
+directly, add the flag yourself.
 
 ## Pair the iPhone app
 
@@ -108,16 +173,30 @@ Claude and Codex are the primary supported path. AgentMeter also inherits CodexB
 ## Common commands
 
 ```bash
-swift build
-swift test
-./Scripts/lint.sh lint
+make build
+make test
+make lint
 
-swift build -c release --product AgentMeter
-./Scripts/agentmeter_package_local_app.sh
+make release
 ./Scripts/agentmeter_verify_local_app.sh .agentmeter-artifacts/AgentMeter-*.app
 ```
 
-Important packaging detail: the package script wraps the existing release binary. If Swift code changed, run `swift build -c release --product AgentMeter` before packaging.
+The package script wraps the existing release binary. If you call it directly after changing
+Swift code, run `swift build --build-system native -c release --product AgentMeter` first.
+
+## Several Claude accounts
+
+AgentMeter works with one Claude account out of the box. If you rotate between several with
+[claude-swap](https://github.com/realiti4/claude-swap), AgentMeter reads its account list
+(`cswap list --json`, read-only; it never switches accounts) and shows:
+
+- one limit card per account, with the active one marked;
+- why a card is stale and when it will retry;
+- a "By subscription" split of this Mac's 30-day token use, matched from each session's own
+  account markers and, for older sessions, claude-swap's switch log.
+
+Account ids are hashed before they are stored, and nothing is sent off the Mac. Costs are
+API-equivalent estimates, not what a subscription bills.
 
 ## Forking and rebranding
 

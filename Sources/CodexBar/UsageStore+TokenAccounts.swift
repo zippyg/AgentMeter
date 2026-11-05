@@ -1,4 +1,5 @@
 import CodexBarCore
+import CryptoKit
 import Foundation
 
 struct TokenAccountUsageSnapshot: Identifiable {
@@ -7,12 +8,14 @@ struct TokenAccountUsageSnapshot: Identifiable {
     let snapshot: UsageSnapshot?
     let error: String?
     let sourceLabel: String?
+    let cacheKey: String?
 
-    init(account: ProviderTokenAccount, snapshot: UsageSnapshot?, error: String?, sourceLabel: String?) {
+    init(account: ProviderTokenAccount, snapshot: UsageSnapshot?, error: String?, sourceLabel: String?, cacheKey: String? = nil) {
         self.id = account.id
         self.account = account
         self.snapshot = snapshot
         self.error = error
+        self.cacheKey = cacheKey
         self.sourceLabel = sourceLabel
     }
 }
@@ -51,6 +54,46 @@ private struct CodexManagedVisibleAccountRuntimeState {
 }
 
 extension UsageStore {
+    func cacheTokenAccountSnapshot(
+        provider: UsageProvider,
+        account: ProviderTokenAccount,
+        snapshot: UsageSnapshot,
+        sourceLabel: String?)
+    {
+        guard provider != .cursor || self.settings.cursorCookieSource != .auto else { return }
+        let cached = TokenAccountUsageSnapshot(
+            account: account,
+            snapshot: snapshot,
+            error: nil,
+            sourceLabel: sourceLabel,
+            cacheKey: self.tokenAccountSnapshotCacheKey(provider: provider, account: account))
+        var snapshots = self.accountSnapshots[provider] ?? []
+        if let index = snapshots.firstIndex(where: { $0.account.id == account.id }) {
+            snapshots[index] = cached
+        } else {
+            snapshots.append(cached)
+        }
+        self.accountSnapshots[provider] = snapshots
+    }
+
+    func tokenAccountSnapshotCacheKey(provider: UsageProvider, account: ProviderTokenAccount) -> String {
+        var config = self.settings.configSnapshot.providerConfig(for: provider) ?? ProviderConfig(id: provider)
+        // Active selection and sibling accounts must not invalidate a valid per-account snapshot.
+        config.tokenAccounts = nil
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var material = Data(provider.rawValue.utf8)
+        material.append((try? encoder.encode(config)) ?? Data())
+        material.append((try? encoder.encode(account)) ?? Data())
+        // Credential references survive token replacement, so include the resolved secret in the digest.
+        material.append(Data(account.token.utf8))
+        return SHA256.hash(data: material).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func uniqueTokenAccount(provider: UsageProvider, accountID: UUID) -> ProviderTokenAccount? {
+        let matches = self.settings.tokenAccounts(for: provider).filter { $0.id == accountID }
+        return matches.count == 1 ? matches[0] : nil
+    }
     static let tokenAccountMenuSnapshotLimit = 6
     private static let codexSessionWindowMinutes = 5 * 60
     private static let codexWeeklyWindowMinutes = 7 * 24 * 60
@@ -407,7 +450,9 @@ extension UsageStore {
         var snapshots: [TokenAccountUsageSnapshot] = []
         var historySamples: [(account: ProviderTokenAccount, snapshot: UsageSnapshot)] = []
         var selectedOutcome: ProviderFetchOutcome?
+        var resolvedSelectedAccount: ProviderTokenAccount?
         var selectedSnapshot: UsageSnapshot?
+        var selectedAccountSnapshot: TokenAccountUsageSnapshot?
         var sawAnyNonCancellationOutcome = false
 
         let results = await self.fetchTokenAccountOutcomes(provider: provider, accounts: limitedAccounts)
@@ -427,12 +472,14 @@ extension UsageStore {
             if let snapshot = resolved.snapshot {
                 snapshots.append(snapshot)
             }
-            if let usage = resolved.usage {
+            if let usage = resolved.freshUsage {
                 historySamples.append((account: account, snapshot: usage))
             }
             if account.id == effectiveSelected?.id {
                 selectedOutcome = outcome
+                resolvedSelectedAccount = account
                 selectedSnapshot = resolved.usage
+                selectedAccountSnapshot = resolved.snapshot
             }
         }
 
@@ -447,12 +494,13 @@ extension UsageStore {
             }
         }
 
-        if let selectedOutcome {
+        if let selectedOutcome, let resolvedSelectedAccount {
             await self.applySelectedOutcome(
                 selectedOutcome,
                 provider: provider,
-                account: effectiveSelected,
+                account: resolvedSelectedAccount,
                 fallbackSnapshot: selectedSnapshot,
+                fallbackAccountSnapshot: selectedAccountSnapshot,
                 generation: generation)
         }
 
@@ -695,6 +743,7 @@ extension UsageStore {
     private struct ResolvedAccountOutcome {
         let snapshot: TokenAccountUsageSnapshot?
         let usage: UsageSnapshot?
+        let freshUsage: UsageSnapshot?
     }
 
     private struct ResolvedCodexAccountOutcome {
@@ -1064,28 +1113,48 @@ extension UsageStore {
                 account: account,
                 snapshot: labeled,
                 error: nil,
-                sourceLabel: result.sourceLabel)
-            return ResolvedAccountOutcome(snapshot: snapshot, usage: labeled)
+                sourceLabel: result.sourceLabel,
+                cacheKey: self.tokenAccountSnapshotCacheKey(provider: provider, account: account))
+            return ResolvedAccountOutcome(snapshot: snapshot, usage: labeled, freshUsage: labeled)
         case let .failure(error):
             // Preserve the last-good snapshot when the refresh was cancelled (e.g. the
             // user switched menu tabs mid-flight). Without this the per-account list
             // would briefly render error chips for accounts that already had data.
             if Self.errorIsCancellation(error) {
                 if let priorSnapshot, priorSnapshot.snapshot != nil {
-                    return ResolvedAccountOutcome(snapshot: priorSnapshot, usage: priorSnapshot.snapshot)
+                    return ResolvedAccountOutcome(
+                        snapshot: priorSnapshot,
+                        usage: priorSnapshot.snapshot,
+                        freshUsage: nil)
                 }
                 // No usable prior data: skip this row entirely. The caller will
                 // either preserve the existing per-account state or fall back to
                 // the single live card. Rendering a "cancelled" placeholder here
                 // produces visually duplicate cards with no useful data.
-                return ResolvedAccountOutcome(snapshot: nil, usage: nil)
+                return ResolvedAccountOutcome(snapshot: nil, usage: nil, freshUsage: nil)
+            }
+            if provider == .claude,
+               ClaudeUsageError.isClaudeOAuthUsageRateLimit(error),
+               let priorSnapshot,
+               priorSnapshot.sourceLabel == "oauth",
+               priorSnapshot.cacheKey == self.tokenAccountSnapshotCacheKey(provider: provider, account: account),
+               let priorUsage = priorSnapshot.snapshot
+            {
+                let snapshot = TokenAccountUsageSnapshot(
+                    account: account,
+                    snapshot: priorUsage,
+                    error: nil,
+                    sourceLabel: "oauth",
+                    cacheKey: priorSnapshot.cacheKey)
+                return ResolvedAccountOutcome(snapshot: snapshot, usage: priorUsage, freshUsage: nil)
             }
             let snapshot = TokenAccountUsageSnapshot(
                 account: account,
                 snapshot: nil,
                 error: self.tokenAccountSnapshotErrorMessage(error),
-                sourceLabel: nil)
-            return ResolvedAccountOutcome(snapshot: snapshot, usage: nil)
+                sourceLabel: nil,
+                cacheKey: self.tokenAccountSnapshotCacheKey(provider: provider, account: account))
+            return ResolvedAccountOutcome(snapshot: snapshot, usage: nil, freshUsage: nil)
         }
     }
 
@@ -1209,6 +1278,7 @@ extension UsageStore {
         provider: UsageProvider,
         account: ProviderTokenAccount?,
         fallbackSnapshot: UsageSnapshot?,
+        fallbackAccountSnapshot: TokenAccountUsageSnapshot? = nil,
         generation: UInt64? = nil) async
     {
         await MainActor.run {
@@ -1246,6 +1316,31 @@ extension UsageStore {
                 account: account)
         case let .failure(error):
             await MainActor.run {
+                guard self.isCurrentProviderRefreshGeneration(provider, generation: generation) else { return }
+                if provider == .claude,
+                   ClaudeUsageError.isClaudeOAuthUsageRateLimit(error),
+                   let account,
+                   let currentAccount = self.uniqueTokenAccount(provider: provider, accountID: account.id),
+                   let fallbackAccountSnapshot,
+                   fallbackAccountSnapshot.account.id == currentAccount.id,
+                   fallbackAccountSnapshot.sourceLabel == "oauth",
+                   fallbackAccountSnapshot.cacheKey == self.tokenAccountSnapshotCacheKey(
+                       provider: provider,
+                       account: currentAccount),
+                   let fallback = fallbackAccountSnapshot.snapshot
+                {
+                    self.snapshots[provider] = fallback
+                    self.lastKnownResetSnapshots[provider] = fallback
+                    self.lastSourceLabels[provider] = "oauth"
+                    self.cacheTokenAccountSnapshot(
+                        provider: provider,
+                        account: currentAccount,
+                        snapshot: fallback,
+                        sourceLabel: "oauth")
+                    self.errors[provider] = nil
+                    self.failureGates[provider]?.reset()
+                    return
+                }
                 guard let message = self.tokenAccountErrorMessage(error) else {
                     self.errors[provider] = nil
                     return

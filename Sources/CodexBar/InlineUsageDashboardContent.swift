@@ -170,6 +170,19 @@ extension UsageMenuCardView.Model {
         }
     }
 
+    static func allAccountsDashboard(
+        sources: [SharedCostUsage.Source],
+        scope: AllAccountsDashboardModel.Scope = .overview,
+        exportFailures: Set<UsageProvider> = [],
+        accountLabels: [String: String] = [:],
+        accountKeyGroups: [[String]] = [],
+        now: Date = Date()) -> AllAccountsDashboardModel?
+    {
+        AllAccountsDashboardModel.make(
+            sources: sources, scope: scope, exportFailures: exportFailures,
+            accountLabels: accountLabels, accountKeyGroups: accountKeyGroups, now: now)
+    }
+
     private static func costHistoryInlineDashboard(
         provider: UsageProvider,
         snapshot: CostUsageTokenSnapshot) -> InlineUsageDashboardModel

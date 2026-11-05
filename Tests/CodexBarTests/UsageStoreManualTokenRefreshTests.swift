@@ -172,7 +172,24 @@ struct UsageStoreManualTokenRefreshTests {
         }
     }
 
-    private static func makeStore() -> UsageStore {
+    @Test
+    func `disabled cost usage skips token scans`() async {
+        let defaults = UserDefaults.standard
+        let prior = defaults.volatileDomain(forName: UserDefaults.registrationDomain)
+        defaults.register(defaults: ["tokenCostUsageEnabled": false])
+        defer { defaults.setVolatileDomain(prior, forName: UserDefaults.registrationDomain) }
+        let store = Self.makeStore(costUsageEnabled: false)
+        let recorder = TokenRefreshRecorder()
+        store._test_providerRefreshOverride = { _ in }
+        store._test_tokenUsageRefreshOverride = { provider, force in
+            await recorder.record(provider: provider, force: force)
+        }
+        await store.refresh(forceTokenUsage: true)
+        #expect(await recorder.calls.isEmpty)
+        #expect(store.overviewTokenSnapshots.isEmpty)
+    }
+
+    private static func makeStore(costUsageEnabled: Bool = true) -> UsageStore {
         let suite = "UsageStoreManualTokenRefreshTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
@@ -183,7 +200,7 @@ struct UsageStoreManualTokenRefreshTests {
             syntheticTokenStore: NoopSyntheticTokenStore())
         settings.refreshFrequency = .manual
         settings.statusChecksEnabled = false
-        settings.costUsageEnabled = true
+        settings.costUsageEnabled = costUsageEnabled
         settings.openAIWebAccessEnabled = false
         settings.codexCookieSource = .off
         settings.providerDetectionCompleted = true

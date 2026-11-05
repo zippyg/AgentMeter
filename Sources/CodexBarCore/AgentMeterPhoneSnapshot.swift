@@ -2,7 +2,7 @@ import Foundation
 
 public struct AgentMeterPhoneSnapshot: Codable, Equatable, Sendable {
     public static let primaryProviderIDs: Set<String> = ["claude", "codex"]
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public let schemaVersion: Int
     public let snapshotSequence: Int
@@ -66,7 +66,7 @@ public struct AgentMeterPhoneSnapshot: Codable, Equatable, Sendable {
             generatedAt: agentMeterSnapshot.generatedAt,
             producer: agentMeterSnapshot.producer,
             providers: agentMeterSnapshot.providers
-                .filter { providerIDs.contains($0.id) }
+                .filter { providerIDs.contains($0.usageProviderID) }
                 .map { provider in
                     AgentMeterPhoneProvider(
                         provider: provider,
@@ -95,6 +95,12 @@ public struct AgentMeterPhoneSnapshot: Codable, Equatable, Sendable {
 public struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let displayName: String
+    public let providerID: String?
+    public let accountID: String?
+    public let isActiveCLI: Bool?
+    public let spend: AgentMeterSpendSummary?
+    public let creditsUsed: Double?
+    public let creditsRemaining: Double?
     public let accountLabel: String?
     public let plan: String?
     public let windows: [AgentMeterPhoneUsageWindow]
@@ -110,6 +116,12 @@ public struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendabl
     public init(
         id: String,
         displayName: String,
+        providerID: String? = nil,
+        accountID: String? = nil,
+        isActiveCLI: Bool? = nil,
+        spend: AgentMeterSpendSummary? = nil,
+        creditsUsed: Double? = nil,
+        creditsRemaining: Double? = nil,
         accountLabel: String? = nil,
         plan: String? = nil,
         windows: [AgentMeterPhoneUsageWindow],
@@ -124,6 +136,12 @@ public struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendabl
     {
         self.id = id
         self.displayName = displayName
+        self.providerID = providerID
+        self.accountID = accountID
+        self.isActiveCLI = isActiveCLI
+        self.spend = spend
+        self.creditsUsed = creditsUsed
+        self.creditsRemaining = creditsRemaining
         self.accountLabel = accountLabel
         self.plan = plan
         self.windows = windows
@@ -141,6 +159,12 @@ public struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendabl
         self.init(
             id: provider.id,
             displayName: provider.displayName,
+            providerID: provider.providerID,
+            accountID: provider.accountID,
+            isActiveCLI: provider.isActiveCLI,
+            spend: provider.spend,
+            creditsUsed: provider.creditsUsed,
+            creditsRemaining: provider.creditsRemaining,
             accountLabel: provider.accountLabel,
             plan: provider.plan,
             windows: provider.windows.map(AgentMeterPhoneUsageWindow.init(window:)),
@@ -157,6 +181,12 @@ public struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendabl
     private enum CodingKeys: String, CodingKey {
         case id
         case displayName
+        case providerID
+        case accountID
+        case isActiveCLI
+        case spend
+        case creditsUsed
+        case creditsRemaining
         case accountLabel
         case plan
         case windows
@@ -174,6 +204,12 @@ public struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendabl
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(String.self, forKey: .id)
         self.displayName = try container.decode(String.self, forKey: .displayName)
+        self.providerID = try container.decodeIfPresent(String.self, forKey: .providerID)
+        self.accountID = try container.decodeIfPresent(String.self, forKey: .accountID)
+        self.isActiveCLI = try container.decodeIfPresent(Bool.self, forKey: .isActiveCLI)
+        self.spend = try container.decodeIfPresent(AgentMeterSpendSummary.self, forKey: .spend)
+        self.creditsUsed = try container.decodeIfPresent(Double.self, forKey: .creditsUsed)
+        self.creditsRemaining = try container.decodeIfPresent(Double.self, forKey: .creditsRemaining)
         self.accountLabel = try container.decodeIfPresent(String.self, forKey: .accountLabel)
         self.plan = try container.decodeIfPresent(String.self, forKey: .plan)
         self.windows = try container.decode([AgentMeterPhoneUsageWindow].self, forKey: .windows)

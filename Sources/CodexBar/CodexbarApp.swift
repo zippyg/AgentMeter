@@ -392,7 +392,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launchMode: AgentMeterLaunchMode?
     private var liveSyncServer: AgentMeterLiveSyncServer?
     private var hasScheduledStatusControllerStartup = false
+    private var statusControllerStartupWorkItem: DispatchWorkItem?
     private var hasInstalledWeeklyLimitResetObserver = false
+    var statusControllerStartupDelayOverride: TimeInterval?
+    var sessionActivityNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
+    private var sessionActivityObserverTokens: [NSObjectProtocol] = []
+    static var sessionIsActiveProvider: @MainActor () -> Bool = {
+        SessionActivityMonitor.currentSessionIsActive()
+    }
+
     var terminateActiveProcessesForAppShutdown: () -> Void = {
         TTYCommandRunner.terminateActiveProcessesForAppShutdown()
     }
@@ -415,8 +423,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if self.launchMode?.requestsNotificationAuthorizationOnStartup ?? true {
             AppNotifications.shared.requestAuthorizationOnStartup()
         }
-        self.scheduleStatusControllerStartup()
-        self.configureLiveSyncServer()
+        self.installSessionActivityObservers()
+        self.startSessionOwnedAppWork()
         KeyboardShortcuts.onKeyUp(for: .openMenu) { [weak self] in
             // KeyboardShortcuts dispatches both normal and menu-tracking hotkeys on the main event loop.
             MainActor.assumeIsolated {
@@ -439,6 +447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        self.removeSessionActivityObservers()
         self.liveSyncServer?.stop()
         self.statusController?.prepareForAppShutdown()
         self.confettiOverlayController.dismiss()
@@ -470,7 +479,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.configureLiveSyncServer()
     }
 
+    private func startSessionOwnedAppWork() {
+        guard Self.sessionIsActiveProvider() else {
+            self.stopSessionOwnedAppWork()
+            return
+        }
+        self.scheduleStatusControllerStartup()
+        self.configureLiveSyncServer()
+    }
+
+    private func stopSessionOwnedAppWork() {
+        self.statusControllerStartupWorkItem?.cancel()
+        self.statusControllerStartupWorkItem = nil
+        self.liveSyncServer?.stop()
+        self.liveSyncServer = nil
+        self.statusController?.prepareForAppShutdown()
+        self.statusController = nil
+        self.hasScheduledStatusControllerStartup = false
+    }
+
+    private func installSessionActivityObservers() {
+        guard self.sessionActivityObserverTokens.isEmpty else { return }
+        let center = self.sessionActivityNotificationCenter
+        self.sessionActivityObserverTokens = [
+            center.addObserver(
+                forName: NSWorkspace.sessionDidResignActiveNotification,
+                object: nil,
+                queue: .main)
+            { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.stopSessionOwnedAppWork()
+                }
+            },
+            center.addObserver(
+                forName: NSWorkspace.sessionDidBecomeActiveNotification,
+                object: nil,
+                queue: .main)
+            { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.startSessionOwnedAppWork()
+                }
+            },
+        ]
+    }
+
+    private func removeSessionActivityObservers() {
+        let center = self.sessionActivityNotificationCenter
+        for token in self.sessionActivityObserverTokens {
+            center.removeObserver(token)
+        }
+        self.sessionActivityObserverTokens.removeAll()
+    }
+
     private func configureLiveSyncServer() {
+        guard Self.sessionIsActiveProvider() else {
+            self.liveSyncServer?.stop()
+            self.liveSyncServer = nil
+            return
+        }
         guard self.settings?.agentMeterBridgeEnabled == true else {
             self.liveSyncServer?.stop()
             self.liveSyncServer = nil
@@ -486,13 +552,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func scheduleStatusControllerStartup() {
         guard !self.hasScheduledStatusControllerStartup else { return }
         self.hasScheduledStatusControllerStartup = true
-        guard !SettingsStore.isRunningTests else {
-            self.ensureStatusController()
-            return
+        let workItem = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if Self.sessionIsActiveProvider(), self.hasScheduledStatusControllerStartup {
+                    self.completeStatusControllerStartup()
+                } else {
+                    self.statusControllerStartupWorkItem = nil
+                    self.hasScheduledStatusControllerStartup = false
+                }
+            }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.ensureStatusController()
+        self.statusControllerStartupWorkItem = workItem
+        let delay = self.statusControllerStartupDelayOverride ?? (SettingsStore.isRunningTests ? 0 : 1)
+        if delay <= 0 {
+            workItem.perform()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         }
+    }
+
+    private func completeStatusControllerStartup() {
+        guard Self.sessionIsActiveProvider(), self.hasScheduledStatusControllerStartup else { return }
+        self.statusControllerStartupWorkItem = nil
+        self.ensureStatusController()
     }
 
     /// Use the classic (non-Liquid Glass) app icon on macOS versions before 26.

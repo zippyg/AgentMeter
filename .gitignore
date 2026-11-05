@@ -34,6 +34,7 @@ debug_*.swift
 # Misc
 .DS_Store
 .vscode/
+.codex/environments/
 .swiftpm-cache/
 .tmp-clang/
 
@@ -44,6 +45,22 @@ docs/.astro/
 # Swift Package Manager metadata (leave sources tracked)
 # Packages/
 # Package.resolved
+
+# --- AgentMeter public surface ---
+# A fresh public repo built from this tree should contain only AgentMeter's own
+# code and docs. The entries below keep internal agent tooling, inherited upstream
+# marketing/site, and personal release config out of the public surface. See
+# docs/FORKING.md and the publish runbook.
+
+# Internal agent operating system (private)
+AGENTS.md
+CLAUDE.md
+PLAN.md
+goal.txt
+.agent/
+.agents/
+.claude/
+.codex/
 
 # Inherited CodexBar marketing / site / release feed (not part of AgentMeter)
 codexbar.png
@@ -58,48 +75,7 @@ Icon.icon/
 # Ship only AgentMeter docs, not the inherited CodexBar docs site (CNAME, index.html, provider pages)
 docs/*
 !docs/FORKING.md
-!docs/abacus.md
-!docs/alibaba-coding-plan.md
-!docs/alibaba-token-plan.md
-!docs/amp.md
-!docs/antigravity.md
-!docs/augment.md
-!docs/bedrock.md
-!docs/claude.md
-!docs/cli-configuration.md
-!docs/codebuff.md
-!docs/configuration.md
-!docs/codex.md
-!docs/command-code.md
-!docs/copilot.md
-!docs/crof.md
-!docs/cursor.md
-!docs/deepgram.md
-!docs/deepseek.md
-!docs/devin.md
-!docs/doubao.md
-!docs/elevenlabs.md
-!docs/factory.md
-!docs/gemini.md
-!docs/grok.md
-!docs/jetbrains.md
-!docs/kilo.md
-!docs/kimi-k2.md
-!docs/kimi.md
-!docs/kiro.md
-!docs/mimo.md
-!docs/minimax.md
-!docs/moonshot.md
-!docs/ollama.md
-!docs/openai.md
-!docs/opencode.md
-!docs/openrouter.md
-!docs/providers.md
-!docs/stepfun.md
-!docs/venice.md
-!docs/vertexai.md
-!docs/warp.md
-!docs/zai.md
+!docs/usage-export.md
 !docs/images/
 
 # Private/inherited release and upstream-maintenance helpers are not part of the source-only

@@ -3,7 +3,8 @@ import SwiftUI
 
 struct AgentMeterMenuSummaryModel: Equatable {
     struct Row: Identifiable, Equatable {
-        let id: UsageProvider
+        let id: String
+        let provider: UsageProvider
         let title: String
         let systemImageName: String
         let statusText: String
@@ -13,12 +14,15 @@ struct AgentMeterMenuSummaryModel: Equatable {
         let weeklyLine: String
         let resetLine: String?
         let tokenLine: String?
+        let detailLines: [String]
         let sourceLine: String
         let updatedLine: String
 
         var heightFingerprint: String {
             [
-                self.id.rawValue,
+                self.id,
+                self.title,
+                self.detailLines.joined(separator: "|"),
                 self.statusText,
                 self.usedPercent.map { String(format: "%.0f", $0) } ?? "nil",
                 self.sessionLine,
@@ -38,9 +42,8 @@ struct AgentMeterMenuSummaryModel: Equatable {
 
     init(snapshot: AgentMeterSnapshot, now: Date = .init()) {
         self.generatedLine = UsageFormatter.updatedString(from: snapshot.generatedAt, now: now)
-        let byID = Dictionary(uniqueKeysWithValues: snapshot.providers.map { ($0.id, $0) })
-        self.rows = Self.providerOrder.compactMap { provider in
-            byID[provider.rawValue].map { providerSnapshot in
+        self.rows = Self.providerOrder.flatMap { provider in
+            snapshot.providers.filter { $0.usageProviderID == provider.rawValue }.map { providerSnapshot in
                 Self.row(provider: provider, snapshot: providerSnapshot, now: now)
             }
         }
@@ -55,12 +58,14 @@ struct AgentMeterMenuSummaryModel: Equatable {
         snapshot: AgentMeterProviderSnapshot,
         now: Date) -> Row
     {
-        let session = snapshot.window(id: "session") ?? snapshot.windows.first
-        let weekly = snapshot.window(id: "weekly") ?? snapshot.windows.dropFirst().first
-        let effectiveStatus = snapshot.isStale(now: now) ? AgentMeterProviderStatus.stale : snapshot.status
+        let session = snapshot.window(id: "session")
+        let weekly = snapshot.window(id: "weekly")
+        let effectiveStatus = snapshot.status == .ok && snapshot.isStale(now: now)
+            ? AgentMeterProviderStatus.stale : snapshot.status
         return Row(
-            id: provider,
-            title: snapshot.displayName,
+            id: snapshot.id,
+            provider: provider,
+            title: snapshot.accountID == nil ? snapshot.displayName : snapshot.accountDisplayName,
             systemImageName: Self.systemImageName(for: provider),
             statusText: Self.statusText(effectiveStatus),
             status: effectiveStatus,
@@ -69,8 +74,29 @@ struct AgentMeterMenuSummaryModel: Equatable {
             weeklyLine: Self.windowLine(title: "Weekly", window: weekly),
             resetLine: Self.resetLine(session: session, weekly: weekly, now: now),
             tokenLine: Self.tokenLine(snapshot.tokenUsage),
+            detailLines: Self.detailLines(snapshot),
             sourceLine: Self.sourceLine(snapshot.source),
             updatedLine: UsageFormatter.updatedString(from: snapshot.updatedAt, now: now))
+    }
+
+    private static func detailLines(_ snapshot: AgentMeterProviderSnapshot) -> [String] {
+        var lines = snapshot.windows.filter { $0.id != "session" && $0.id != "weekly" }.map {
+            Self.windowLine(title: $0.title, window: $0)
+        }
+        if let spend = snapshot.spend, let used = spend.used {
+            var text = "Extra usage: " + UsageFormatter.currencyString(used, currencyCode: spend.currencyCode)
+            if let limit = spend.limit {
+                text += " / " + UsageFormatter.currencyString(limit, currencyCode: spend.currencyCode)
+            }
+            lines.append(text)
+        }
+        if let remaining = snapshot.creditsRemaining {
+            lines.append("Credits remaining: \(remaining.formatted())")
+        }
+        if let used = snapshot.creditsUsed {
+            lines.append("Credits used (reported history): \(used.formatted())")
+        }
+        return lines
     }
 
     private static func primaryUsed(
@@ -247,6 +273,10 @@ private struct AgentMeterProviderSummaryRow: View {
                     .lineLimit(1)
             }
 
+            ForEach(self.row.detailLines, id: \.self) { line in
+                Text(line).font(.caption).foregroundStyle(.secondary)
+            }
+
             if let tokenLine = self.row.tokenLine {
                 Text(tokenLine)
                     .font(.caption)
@@ -266,10 +296,10 @@ private struct AgentMeterProviderSummaryRow: View {
 
     @ViewBuilder
     private var providerIcon: some View {
-        if self.row.id == .claude, let image = AgentMeterMascotIcon.claudeCreature() {
+        if self.row.provider == .claude, let image = AgentMeterMascotIcon.claudeCreature() {
             AgentMeterClaudeMascotView(image: image)
                 .frame(width: 18, height: 18)
-        } else if let image = ProviderBrandIcon.image(for: self.row.id) {
+        } else if let image = ProviderBrandIcon.image(for: self.row.provider) {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
@@ -285,7 +315,7 @@ private struct AgentMeterProviderSummaryRow: View {
     }
 
     private var accentColor: Color {
-        switch self.row.id {
+        switch self.row.provider {
         case .claude:
             Color(red: 0.78, green: 0.36, blue: 0.16)
         case .codex:
@@ -330,7 +360,9 @@ extension UsageStore {
         let providers = AgentMeterMenuSummaryModel.providerOrder.map { provider in
             self.agentMeterProviderSnapshot(provider: provider, now: now)
         }
-        return AgentMeterSnapshot(generatedAt: now, providers: providers)
+        return self.claudeSwapSnapshot(
+            AgentMeterSnapshot(generatedAt: now, providers: providers),
+            nextRefreshAt: nil)
     }
 
     private func agentMeterProviderSnapshot(
@@ -359,6 +391,10 @@ extension UsageStore {
             windows: self.agentMeterWindows(provider: provider, snapshot: snapshot, metadata: metadata),
             spend: snapshot.providerCost.map(Self.agentMeterSpendSummary),
             tokenUsage: tokenSnapshot.map(Self.agentMeterTokenUsageSummary),
+            creditsUsed: provider == .codex ? self.codexConsumerProjection(surface: .widget, now: now)
+                .credits?.snapshot
+                .flatMap { $0.events.isEmpty ? nil : $0.events.reduce(0) { $0 + $1.creditsUsed } } :
+                nil,
             creditsRemaining: provider == .codex ? self.credits?.remaining : nil,
             codeReviewRemainingPercent: nil,
             source: self.agentMeterSourceDescriptor(provider: provider),

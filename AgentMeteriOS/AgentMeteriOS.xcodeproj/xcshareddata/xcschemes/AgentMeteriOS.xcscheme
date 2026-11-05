@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A7CFA357A5254BAAA8F36B2D"
-               BuildableName = "AgentMeteriOS.app"
+               BuildableName = "AgentMeter.app"
                BlueprintName = "AgentMeteriOS"
                ReferencedContainer = "container:AgentMeteriOS.xcodeproj">
             </BuildableReference>
@@ -71,7 +71,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A7CFA357A5254BAAA8F36B2D"
-            BuildableName = "AgentMeteriOS.app"
+            BuildableName = "AgentMeter.app"
             BlueprintName = "AgentMeteriOS"
             ReferencedContainer = "container:AgentMeteriOS.xcodeproj">
          </BuildableReference>
@@ -88,7 +88,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A7CFA357A5254BAAA8F36B2D"
-            BuildableName = "AgentMeteriOS.app"
+            BuildableName = "AgentMeter.app"
             BlueprintName = "AgentMeteriOS"
             ReferencedContainer = "container:AgentMeteriOS.xcodeproj">
          </BuildableReference>

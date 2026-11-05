@@ -45,7 +45,7 @@ enum AgentMeterFormat {
             if seconds > 0 {
                 return "Resets in \(Self.duration(seconds))"
             }
-            return "Reset \(Self.relative(resetsAt, from: reference))"
+            return nil
         }
 
         guard let resetDescription = resetDescription?.trimmingCharacters(in: .whitespacesAndNewlines),

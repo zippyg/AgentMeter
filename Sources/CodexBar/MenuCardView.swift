@@ -105,7 +105,11 @@ struct UsageMenuCardView: View {
         }
 
         let provider: UsageProvider
-        let providerName: String
+        var providerName: String
+        /// Which account this card is for, when one provider shows several cards.
+        var seatName: String?
+        /// Whether that account is the live one; draws a green or red dot beside the seat name.
+        var seatIsLive: Bool?
         let email: String
         let subtitleText: String
         let subtitleStyle: SubtitleStyle
@@ -115,7 +119,7 @@ struct UsageMenuCardView: View {
         let usageNotes: [String]
         let openAIAPIUsage: OpenAIAPIUsageSnapshot?
         let inlineUsageDashboard: InlineUsageDashboardModel?
-        let creditsText: String?
+        var creditsText: String?
         let creditsRemaining: Double?
         let creditsHintText: String?
         let creditsHintCopyText: String?
@@ -666,6 +670,7 @@ extension UsageMenuCardView.Model {
         let kiloAutoMode: Bool
         let hidePersonalInfo: Bool
         let weeklyPace: UsagePace?
+        let claudeSwapAccount: AgentMeterProviderSnapshot?
         let quotaWarningThresholds: [QuotaWarningWindow: [Int]]
         let workDaysPerWeek: Int?
         let usesLiveSubtitle: Bool
@@ -694,6 +699,7 @@ extension UsageMenuCardView.Model {
             kiloAutoMode: Bool = false,
             hidePersonalInfo: Bool,
             weeklyPace: UsagePace? = nil,
+            claudeSwapAccount: AgentMeterProviderSnapshot? = nil,
             quotaWarningThresholds: [QuotaWarningWindow: [Int]] = [:],
             workDaysPerWeek: Int? = nil,
             usesLiveSubtitle: Bool = false,
@@ -721,6 +727,7 @@ extension UsageMenuCardView.Model {
             self.kiloAutoMode = kiloAutoMode
             self.hidePersonalInfo = hidePersonalInfo
             self.weeklyPace = weeklyPace
+            self.claudeSwapAccount = claudeSwapAccount
             self.quotaWarningThresholds = quotaWarningThresholds
             self.workDaysPerWeek = workDaysPerWeek
             self.usesLiveSubtitle = usesLiveSubtitle
@@ -734,7 +741,7 @@ extension UsageMenuCardView.Model {
             snapshot: input.snapshot,
             account: input.account,
             metadata: input.metadata)
-        let metrics = Self.metrics(input: input)
+        let metrics = Self.metrics(input: input).map { Self.claudeSwapMetric($0, input: input) }
         let openAIAPIUsage = input.snapshot?.openAIAPIUsage
         let inlineUsageDashboard = Self.inlineUsageDashboard(input: input)
         let usageNotes = Self.usageNotes(input: input)

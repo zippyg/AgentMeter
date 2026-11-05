@@ -14,7 +14,8 @@ struct AgentMeterPhoneSnapshot: Codable, Equatable, Sendable {
     }
 
     var claude: AgentMeterPhoneProvider? {
-        self.providers.first { $0.id == "claude" }
+        self.providers.first { $0.usageProviderID == "claude" && $0.isActiveCLI == true }
+            ?? self.providers.first { $0.usageProviderID == "claude" }
     }
 
     var isStale: Bool {
@@ -44,10 +45,11 @@ struct AgentMeterPhoneSnapshot: Codable, Equatable, Sendable {
     func primaryProjection(providerIDs: Set<String> = Self.primaryProviderIDs) -> AgentMeterPhoneSnapshot {
         let orderedProviders: [AgentMeterPhoneProvider]
         if providerIDs == Self.primaryProviderIDs {
-            let providersByID = Dictionary(grouping: self.providers.filter { providerIDs.contains($0.id) }, by: \.id)
-            orderedProviders = Self.primaryProviderOrder.compactMap { providersByID[$0]?.first }
+            let providersByID = Dictionary(grouping: self.providers.filter { providerIDs.contains($0.usageProviderID) },
+                                           by: \.usageProviderID)
+            orderedProviders = Self.primaryProviderOrder.flatMap { providersByID[$0] ?? [] }
         } else {
-            orderedProviders = self.providers.filter { providerIDs.contains($0.id) }
+            orderedProviders = self.providers.filter { providerIDs.contains($0.usageProviderID) }
         }
 
         return AgentMeterPhoneSnapshot(
@@ -88,6 +90,12 @@ struct AgentMeterPhoneSnapshot: Codable, Equatable, Sendable {
 struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var displayName: String
+    var providerID: String?
+    var accountID: String?
+    var isActiveCLI: Bool?
+    var spend: AgentMeterSpendSummary?
+    var creditsUsed: Double?
+    var creditsRemaining: Double?
     var accountLabel: String?
     var plan: String?
     var windows: [AgentMeterPhoneUsageWindow]
@@ -103,6 +111,12 @@ struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendable {
     init(
         id: String,
         displayName: String,
+        providerID: String? = nil,
+        accountID: String? = nil,
+        isActiveCLI: Bool? = nil,
+        spend: AgentMeterSpendSummary? = nil,
+        creditsUsed: Double? = nil,
+        creditsRemaining: Double? = nil,
         accountLabel: String? = nil,
         plan: String? = nil,
         windows: [AgentMeterPhoneUsageWindow],
@@ -117,9 +131,15 @@ struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendable {
     {
         self.id = id
         self.displayName = displayName
+        self.providerID = providerID
+        self.accountID = accountID
+        self.isActiveCLI = isActiveCLI
+        self.spend = spend
+        self.creditsUsed = creditsUsed
+        self.creditsRemaining = creditsRemaining
         self.accountLabel = accountLabel
         self.plan = plan
-        self.windows = windows
+        self.windows = Self.normalizedWindows(windows, providerID: providerID ?? id)
         self.tokenUsage = tokenUsage
         self.dailyUsage = dailyUsage
         self.source = source
@@ -130,12 +150,20 @@ struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendable {
         self.lastError = lastError
     }
 
+    var usageProviderID: String { self.providerID ?? self.id }
+
+    var accountDisplayLabel: String? {
+        guard let accountLabel else { return nil }
+        return accountLabel + (self.isActiveCLI == true ? " · CLI active" : "")
+    }
+
     var primaryWindow: AgentMeterPhoneUsageWindow? {
-        self.windows.first { $0.id == "session" } ?? self.windows.first
+        self.windows.first { $0.id == "session" } ?? (self.usesCanonicalQuotaWindowIDs ? nil : self.windows.first)
     }
 
     var weeklyWindow: AgentMeterPhoneUsageWindow? {
-        self.windows.first { $0.id == "weekly" } ?? self.windows.dropFirst().first
+        self.windows.first { $0.id == "weekly" } ??
+            (self.usesCanonicalQuotaWindowIDs ? nil : self.windows.dropFirst().first)
     }
 
     func window(id: String) -> AgentMeterPhoneUsageWindow? {
@@ -153,9 +181,19 @@ struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendable {
         return self.status
     }
 
+    private var usesCanonicalQuotaWindowIDs: Bool {
+        self.usageProviderID == "claude" || self.usageProviderID == "codex"
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case displayName
+        case providerID
+        case accountID
+        case isActiveCLI
+        case spend
+        case creditsUsed
+        case creditsRemaining
         case accountLabel
         case plan
         case windows
@@ -173,9 +211,17 @@ struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(String.self, forKey: .id)
         self.displayName = try container.decode(String.self, forKey: .displayName)
+        self.providerID = try container.decodeIfPresent(String.self, forKey: .providerID)
+        self.accountID = try container.decodeIfPresent(String.self, forKey: .accountID)
+        self.isActiveCLI = try container.decodeIfPresent(Bool.self, forKey: .isActiveCLI)
+        self.spend = try container.decodeIfPresent(AgentMeterSpendSummary.self, forKey: .spend)
+        self.creditsUsed = try container.decodeIfPresent(Double.self, forKey: .creditsUsed)
+        self.creditsRemaining = try container.decodeIfPresent(Double.self, forKey: .creditsRemaining)
         self.accountLabel = try container.decodeIfPresent(String.self, forKey: .accountLabel)
         self.plan = try container.decodeIfPresent(String.self, forKey: .plan)
-        self.windows = try container.decode([AgentMeterPhoneUsageWindow].self, forKey: .windows)
+        self.windows = Self.normalizedWindows(
+            try container.decode([AgentMeterPhoneUsageWindow].self, forKey: .windows),
+            providerID: self.providerID ?? self.id)
         self.tokenUsage = try container.decodeIfPresent(AgentMeterPhoneTokenUsage.self, forKey: .tokenUsage)
         self.dailyUsage = try container.decodeIfPresent(
             [AgentMeterPhoneDailyUsagePoint].self,
@@ -186,6 +232,35 @@ struct AgentMeterPhoneProvider: Codable, Equatable, Identifiable, Sendable {
         self.staleAfter = try container.decodeIfPresent(Date.self, forKey: .staleAfter)
         self.nextRefreshAt = try container.decodeIfPresent(Date.self, forKey: .nextRefreshAt)
         self.lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
+    }
+
+    private static func normalizedWindows(
+        _ windows: [AgentMeterPhoneUsageWindow],
+        providerID: String)
+        -> [AgentMeterPhoneUsageWindow]
+    {
+        guard providerID == "claude" || providerID == "codex" else { return windows }
+
+        var normalized: [AgentMeterPhoneUsageWindow] = []
+        var indexByID: [String: Int] = [:]
+        for original in windows {
+            var window = original
+            window.id = switch original.id {
+            case "primary": "session"
+            case "secondary": "weekly"
+            default: original.id
+            }
+
+            if let index = indexByID[window.id] {
+                if original.id == window.id {
+                    normalized[index] = window
+                }
+                continue
+            }
+            indexByID[window.id] = normalized.count
+            normalized.append(window)
+        }
+        return normalized
     }
 }
 
@@ -255,4 +330,13 @@ enum AgentMeterPhoneSettings {
     static func configuredAppGroupIdentifier(infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> String? {
         AgentMeterPhoneSnapshotStore.configuredAppGroupIdentifier(infoDictionary: infoDictionary)
     }
+}
+
+struct AgentMeterSpendSummary: Codable, Equatable, Sendable {
+    var used: Double?
+    var limit: Double?
+    var remaining: Double?
+    var currencyCode: String
+    var period: String?
+    var resetsAt: Date?
 }

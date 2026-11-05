@@ -5,6 +5,7 @@ useDefault = true
 description = "AgentMeter false positives and non-publishable local build artifacts"
 regexTarget = "line"
 paths = [
+  '''(^|/)\.agent/''',
   '''(^|/)\.agentmeter-artifacts/''',
   '''(^|/)\.build/''',
   '''(^|/)\.build-agentmeter-[^/]+/''',

@@ -47,15 +47,13 @@ struct AgentMeterWidgetView: View {
     @AppStorage(AgentMeterPhoneSettings.usageRangeKey, store: AgentMeterPhoneSettings.sharedDefaults)
     private var usageRangeRawValue = AgentMeterUsageRange.currentSession.rawValue
 
-    private var insights: AgentMeterPhoneInsights {
-        AgentMeterPhoneInsights(snapshot: self.snapshot)
-    }
-
     private var selectedRange: AgentMeterUsageRange {
         AgentMeterUsageRange(rawValue: self.usageRangeRawValue) ?? .currentSession
     }
 
     var body: some View {
+        let referenceDate = Date()
+        let insights = AgentMeterPhoneInsights(snapshot: self.snapshot, referenceDate: referenceDate)
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 AgentMeterIdentityMark(size: 18)
@@ -66,14 +64,25 @@ struct AgentMeterWidgetView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(self.statusTint)
             }
-            if self.family != .systemSmall {
-                WidgetInsightsRow(insights: self.insights, range: self.selectedRange)
+            if self.family != .systemSmall, self.snapshot.providers.count <= 2 {
+                WidgetInsightsRow(insights: insights, range: self.selectedRange)
             }
-            ForEach(self.snapshot.providers.prefix(2)) { provider in
-                CompactProviderRow(provider: provider, range: self.selectedRange, generatedAt: self.snapshot.generatedAt)
+            ForEach(self.snapshot.providers) { provider in
+                if self.family != .systemLarge, self.snapshot.providers.count > 2 {
+                    HStack {
+                        Text(provider.accountDisplayLabel.map { "Claude · \($0)" } ?? provider.displayName)
+                            .font(.caption).lineLimit(1).minimumScaleFactor(0.7)
+                        Spacer(minLength: 4)
+                        Text(AgentMeterFormat.percent(provider.usage(
+                            for: self.selectedRange, generatedAt: provider.updatedAt).usedPercent))
+                            .font(.caption.monospacedDigit())
+                    }
+                } else {
+                    CompactProviderRow(provider: provider, range: self.selectedRange, referenceDate: referenceDate)
+                }
             }
             if self.family == .systemLarge {
-                WidgetDailyUsageChart(points: self.insights.combinedDailyUsage)
+                WidgetDailyUsageChart(points: insights.combinedDailyUsage)
             }
             Spacer(minLength: 0)
             Text("Updated \(AgentMeterFormat.relative(self.snapshot.generatedAt))")
@@ -158,17 +167,17 @@ private struct WidgetInsight: View {
 private struct CompactProviderRow: View {
     let provider: AgentMeterPhoneProvider
     let range: AgentMeterUsageRange
-    let generatedAt: Date
+    let referenceDate: Date
 
     private var usage: AgentMeterRangeUsage {
-        self.provider.usage(for: self.range, generatedAt: self.generatedAt)
+        self.provider.usage(for: self.range, generatedAt: self.provider.updatedAt)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 AgentMeterProviderLockup(
-                    providerID: self.provider.id,
+                    providerID: self.provider.usageProviderID,
                     fallbackTitle: self.provider.displayName,
                     iconSize: 16,
                     wordmarkHeight: 13)
@@ -176,10 +185,26 @@ private struct CompactProviderRow: View {
                 Text(AgentMeterFormat.percent(self.usage.usedPercent))
                     .font(.subheadline.monospacedDigit())
             }
+            if let label = self.provider.accountDisplayLabel {
+                Text(label).font(.caption).foregroundStyle(.secondary)
+            }
+            if let spend = self.provider.spend, let used = spend.used {
+                Text("Extra usage: \(used.formatted()) \(spend.currencyCode)")
+                    .font(.caption)
+            }
+            if let credits = self.provider.creditsRemaining {
+                Text("Credits remaining: \(credits.formatted())").font(.caption)
+            }
+            if let used = self.provider.creditsUsed {
+                Text("Credits used (reported history): \(used.formatted())").font(.caption)
+            }
             if let window = self.usage.window {
-                WidgetPaceProjectionBar(window: window, generatedAt: self.generatedAt)
-                if let projection = window.paceProjection(generatedAt: self.generatedAt) {
-                    Text(projection.label)
+                let projection = self.provider.paceProjection(for: window, referenceDate: self.referenceDate)
+                WidgetPaceProjectionBar(
+                    window: window,
+                    projection: projection)
+                if let projection {
+                    Text(projection.label(referenceDate: self.referenceDate))
                         .font(.caption2)
                         .foregroundStyle(projection.emptiesBeforeReset ? .orange : .secondary)
                 }
@@ -201,7 +226,7 @@ private struct CompactProviderRow: View {
 
 private struct WidgetPaceProjectionBar: View {
     let window: AgentMeterPhoneUsageWindow
-    let generatedAt: Date
+    let projection: AgentMeterPaceProjection?
 
     private var usedFraction: Double {
         min(max((self.window.usedPercent ?? 0) / 100, 0), 1)
@@ -216,7 +241,7 @@ private struct WidgetPaceProjectionBar: View {
                 Capsule()
                     .fill(Color.accentColor)
                     .frame(width: max(3, width * self.usedFraction))
-                if let projection = self.window.paceProjection(generatedAt: self.generatedAt) {
+                if let projection {
                     Rectangle()
                         .fill(projection.emptiesBeforeReset ? Color.orange : Color.secondary)
                         .frame(width: 2)

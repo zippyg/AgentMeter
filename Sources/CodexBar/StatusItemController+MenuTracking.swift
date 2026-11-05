@@ -311,6 +311,9 @@ extension StatusItemController {
         for target in providers {
             parts.append(target.rawValue)
             parts.append(self.providerIdentitySignature(self.store.snapshot(for: target)?.identity(for: target)))
+            if target == .claude, let accounts = self.store.claudeSwapAccounts {
+                parts.append(String(describing: accounts))
+            }
 
             if target != .codex, self.store.metadata(for: target).usesAccountFallback {
                 let account = self.store.accountInfo(for: target)

@@ -15,6 +15,7 @@ extension UsageStore {
     }
 
     func hydrateCachedTokenSnapshots(now: Date = Date()) {
+        guard self.sessionIsActive else { return }
         guard self.settings.costUsageEnabled else { return }
         guard self.settings.enabledProvidersOrdered(metadataByProvider: self.providerMetadata).contains(.codex) else {
             return
@@ -33,6 +34,7 @@ extension UsageStore {
                 return
             }
             guard self.settings.costUsageEnabled,
+                  self.sessionIsActive,
                   self.isEnabled(.codex),
                   self.tokenCostScope(for: .codex).signature == scope.signature,
                   self.tokenSnapshots[.codex] == nil

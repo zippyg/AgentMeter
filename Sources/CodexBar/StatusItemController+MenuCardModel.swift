@@ -7,7 +7,8 @@ extension StatusItemController {
         snapshotOverride: UsageSnapshot? = nil,
         errorOverride: String? = nil,
         forceOverrideCard: Bool = false,
-        accountOverride: AccountInfo? = nil) -> UsageMenuCardView.Model?
+        accountOverride: AccountInfo? = nil,
+        claudeSwapAccount: AgentMeterProviderSnapshot? = nil) -> UsageMenuCardView.Model?
     {
         let target = provider ?? self.store.enabledProvidersForDisplay().first ?? .codex
         let metadata = self.store.metadata(for: target)
@@ -55,7 +56,7 @@ extension StatusItemController {
                 tokenError = nil
             }
         } else if ProviderDescriptorRegistry.descriptor(for: target).tokenCost.supportsTokenCost,
-                  snapshotOverride == nil
+                  surface == .liveCard
         {
             credits = nil
             creditsError = nil
@@ -76,8 +77,10 @@ extension StatusItemController {
         let kiloAutoMode = target == .kilo && self.settings.kiloUsageDataSource == .auto
         // Abacus uses primary for monthly credits (no secondary window)
         let paceWindow = target == .abacus ? snapshot?.primary : snapshot?.secondary
-        let weeklyPace = if let codexProjection,
-                            let weekly = codexProjection.rateWindow(for: .weekly)
+        let weeklyPace: UsagePace? = if claudeSwapAccount != nil {
+            nil
+        } else if let codexProjection,
+                  let weekly = codexProjection.rateWindow(for: .weekly)
         {
             self.store.weeklyPace(provider: target, window: weekly, now: now)
         } else {
@@ -108,12 +111,14 @@ extension StatusItemController {
             usageBarsShowUsed: self.settings.usageBarsShowUsed,
             resetTimeDisplayStyle: self.settings.resetTimeDisplayStyle,
             tokenCostUsageEnabled: self.settings.isCostUsageEffectivelyEnabled(for: target),
-            showOptionalCreditsAndExtraUsage: self.settings.showOptionalCreditsAndExtraUsage,
+            showOptionalCreditsAndExtraUsage: target == .claude || target == .codex ||
+                self.settings.showOptionalCreditsAndExtraUsage,
             copilotBudgetExtrasEnabled: self.settings.copilotBudgetExtrasEnabled,
             sourceLabel: sourceLabel,
             kiloAutoMode: kiloAutoMode,
             hidePersonalInfo: self.settings.hidePersonalInfo,
             weeklyPace: weeklyPace,
+            claudeSwapAccount: claudeSwapAccount,
             quotaWarningThresholds: [
                 .session: self.quotaWarningMarkerThresholds(provider: target, window: .session),
                 .weekly: self.quotaWarningMarkerThresholds(provider: target, window: .weekly),
@@ -121,7 +126,13 @@ extension StatusItemController {
             workDaysPerWeek: self.settings.weeklyProgressWorkDays,
             usesLiveSubtitle: surface == .liveCard,
             now: now)
-        return UsageMenuCardView.Model.make(input)
+        var model = UsageMenuCardView.Model.make(input)
+        if let events = codexProjection?.credits?.snapshot?.events, !events.isEmpty {
+            let used = events.reduce(0) { $0 + $1.creditsUsed }
+            model.creditsText = [model.creditsText, "Credits used (reported history): \(used.formatted())"]
+                .compactMap(\.self).joined(separator: " · ")
+        }
+        return model
     }
 
     func accountInfo(for account: CodexVisibleAccount) -> AccountInfo {
@@ -132,5 +143,25 @@ extension StatusItemController {
         guard self.settings.quotaWarningMarkersVisible else { return [] }
         guard self.settings.quotaWarningEnabled(provider: provider, window: window) else { return [] }
         return self.settings.resolvedQuotaWarningThresholds(provider: provider, window: window)
+    }
+}
+
+extension StatusItemController {
+    func claudeSwapMenuCardModels() -> [UsageMenuCardView.Model] {
+        (self.store.claudeSwapAccounts ?? []).compactMap { account in
+            guard var model = self.menuCardModel(
+                for: .claude,
+                snapshotOverride: account.claudeSwapUsageSnapshot,
+                errorOverride: account.status == .ok ? nil : account.lastError ?? account.status.rawValue,
+                forceOverrideCard: true,
+                accountOverride: AccountInfo(email: nil, plan: nil),
+                claudeSwapAccount: account) else { return nil }
+            model.providerName = account.accountDisplayName
+            // The header draws the Claude wordmark rather than providerName, so without this the
+            // two account cards are identical on screen. The active marker has its own badge.
+            model.seatName = account.accountDisplayHint ?? account.accountLabel
+            model.seatIsLive = account.isActiveCLI == true
+            return model
+        }
     }
 }

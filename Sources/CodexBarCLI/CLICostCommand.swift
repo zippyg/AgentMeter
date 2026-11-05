@@ -7,6 +7,10 @@ extension CodexBarCLI {
 
     static func runCost(_ values: ParsedValues) async {
         let output = CLIOutputPreferences.from(values: values)
+        if values.flags.contains("exportShared") || values.options["exportPath"] != nil {
+            await Self.exportSharedCost(values, output: output)
+            return
+        }
         let config = CodexBarCLI.loadConfig(output: output)
         let selection = CodexBarCLI.decodeProvider(from: values, config: config)
         let providers = Self.costProviders(from: selection)
@@ -74,6 +78,26 @@ extension CodexBarCLI {
         }
 
         Self.exit(code: exitCode, output: output, kind: exitCode == .success ? .runtime : .provider)
+    }
+
+    private static func exportSharedCost(_ values: ParsedValues, output: CLIOutputPreferences) async {
+        do {
+            let fetcher = CostUsageFetcher()
+            var engines: [SharedCostUsage.Engine] = []
+            for provider in [UsageProvider.claude, .codex] {
+                let snapshot = try await fetcher.loadTokenSnapshot(
+                    provider: provider, forceRefresh: true, historyDays: 30, refreshPricing: false)
+                engines.append(.init(provider: provider, snapshot: snapshot))
+            }
+            let url = values.options["exportPath"]?.last.map { URL(fileURLWithPath: $0) }
+                ?? SharedCostUsage.defaultURL()
+            try SharedCostUsage(engines: engines).write(to: url)
+            if !output.jsonOnly { print("Wrote shared daily usage to \(url.path)") }
+            Self.exit(code: .success, output: output, kind: .runtime)
+        } catch {
+            Self.exit(code: .failure, message: "Shared usage export failed: \(error.localizedDescription)",
+                      output: output, kind: .runtime)
+        }
     }
 
     static func renderCostText(
@@ -252,6 +276,12 @@ struct CostOptions: CommanderParsable {
 
     @Flag(name: .long("refresh"), help: "Force refresh by ignoring cached scans")
     var refresh: Bool = false
+
+    @Flag(name: .long("export-shared"), help: "Export local Claude and Codex daily aggregates to /Users/Shared/AgentMeter")
+    var exportShared: Bool = false
+
+    @Option(name: .long("export-path"), help: "Export shared daily aggregates to this JSON path")
+    var exportPath: String?
 
     @Option(name: .long("days"), help: "Cost history window in days (1...365)")
     var days: Int?

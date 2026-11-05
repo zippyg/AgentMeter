@@ -114,6 +114,8 @@ public struct CostUsageDailyReport: Sendable, Decodable {
         public let costUSD: Double?
         public let modelsUsed: [String]?
         public let modelBreakdowns: [ModelBreakdown]?
+        /// Per Claude account: `modelName` holds an account key ("slot:N", "acct:<hash>", "unknown").
+        public let accountBreakdowns: [ModelBreakdown]?
 
         private enum CodingKeys: String, CodingKey {
             case date
@@ -131,11 +133,13 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             case modelsUsed
             case models
             case modelBreakdowns
+            case accountBreakdowns
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             self.date = try container.decode(String.self, forKey: .date)
+            self.accountBreakdowns = try container.decodeIfPresent([ModelBreakdown].self, forKey: .accountBreakdowns)
             self.inputTokens = try container.decodeIfPresent(Int.self, forKey: .inputTokens)
             self.cacheReadTokens =
                 try container.decodeIfPresent(Int.self, forKey: .cacheReadTokens)
@@ -165,8 +169,10 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             requestCount: Int? = nil,
             costUSD: Double?,
             modelsUsed: [String]?,
-            modelBreakdowns: [ModelBreakdown]?)
+            modelBreakdowns: [ModelBreakdown]?,
+            accountBreakdowns: [ModelBreakdown]? = nil)
         {
+            self.accountBreakdowns = accountBreakdowns
             self.date = date
             self.inputTokens = inputTokens
             self.outputTokens = outputTokens
@@ -357,11 +363,14 @@ extension CostUsageDailyReport {
         var sawOutputTokens = false
         var totalTokens: Int = 0
         var sawTotalTokens = false
+        var requests = 0
+        var sawRequests = false
         var derivedTotalTokensWithoutExplicitTotal: Int = 0
         var costUSD: Double = 0
         var sawCost = false
         var modelsUsed: Set<String> = []
         var breakdowns: [String: BreakdownAccumulator] = [:]
+        var accounts: [String: (tokens: Int, cost: Double)] = [:]
 
         mutating func add(_ entry: Entry) {
             let entryDerivedTotalTokens = (entry.inputTokens ?? 0)
@@ -390,6 +399,10 @@ extension CostUsageDailyReport {
             } else if entryDerivedTotalTokens > 0 {
                 self.derivedTotalTokensWithoutExplicitTotal += entryDerivedTotalTokens
             }
+            if let requests = entry.requestCount {
+                self.requests += requests
+                self.sawRequests = true
+            }
             if let costUSD = entry.costUSD {
                 self.costUSD += costUSD
                 self.sawCost = true
@@ -404,6 +417,12 @@ extension CostUsageDailyReport {
                     self.breakdowns[breakdown.modelName] = accumulator
                     self.modelsUsed.insert(breakdown.modelName)
                 }
+            }
+            for account in entry.accountBreakdowns ?? [] {
+                let previous = self.accounts[account.modelName] ?? (0, 0)
+                self.accounts[account.modelName] = (
+                    previous.tokens + (account.totalTokens ?? 0),
+                    previous.cost + (account.costUSD ?? 0))
             }
         }
 
@@ -435,9 +454,13 @@ extension CostUsageDailyReport {
                 cacheReadTokens: self.sawCacheReadTokens ? self.cacheReadTokens : nil,
                 cacheCreationTokens: self.sawCacheCreationTokens ? self.cacheCreationTokens : nil,
                 totalTokens: totalTokens,
+                requestCount: self.sawRequests ? self.requests : nil,
                 costUSD: self.sawCost ? self.costUSD : nil,
                 modelsUsed: modelsUsed,
-                modelBreakdowns: modelBreakdowns)
+                modelBreakdowns: modelBreakdowns,
+                accountBreakdowns: self.accounts.isEmpty ? nil : self.accounts.sorted { $0.key < $1.key }.map {
+                    ModelBreakdown(modelName: $0.key, costUSD: $0.value.cost, totalTokens: $0.value.tokens)
+                })
         }
     }
 

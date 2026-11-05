@@ -29,31 +29,41 @@ extension UsageStore {
     }
 
     func refreshStorageFootprintsForOverview() {
+        guard self.sessionIsActive else { return }
         self.scheduleStorageFootprintRefresh(for: self.enabledProvidersForDisplay())
     }
 
     func refreshStorageFootprintsForOverviewNow() async {
+        guard self.sessionIsActive else { return }
         await self.refreshStorageFootprintsNow(for: self.enabledProvidersForDisplay())
     }
 
     func scheduleStorageFootprintRefreshForOverview(force: Bool = false) {
+        guard self.sessionIsActive else { return }
         self.scheduleStorageFootprintRefresh(for: self.enabledProvidersForDisplay(), force: force)
     }
 
     func refreshStorageFootprintsNow(for providers: [UsageProvider]) async {
+        guard self.sessionIsActive else { return }
         guard self.settings.providerStorageFootprintsEnabled else {
             self.clearStorageFootprints()
             return
         }
         let environment = self.environmentBase
         let managedAccountsOverride = self.managedCodexAccountsForStorageOverride
-        let request = await Task.detached(priority: .utility) {
+        let requestTask = Task.detached(priority: .utility) {
             let managedAccounts = Self.loadManagedCodexAccountsForStorage(override: managedAccountsOverride)
             return Self.makeStorageRefreshRequest(
                 for: providers,
                 environment: environment,
                 managedAccounts: managedAccounts)
-        }.value
+        }
+        let request = await withTaskCancellationHandler {
+            await requestTask.value
+        } onCancel: {
+            requestTask.cancel()
+        }
+        guard !Task.isCancelled, self.sessionIsActive else { return }
         guard let request else {
             self.clearStorageFootprints()
             return
@@ -64,11 +74,19 @@ extension UsageStore {
         let generation = self.storageRefreshGeneration
         self.storageRefreshInFlightSignature = request.signature
 
-        let footprints = await Task.detached(priority: .utility) {
+        let scanTask = Task.detached(priority: .utility) {
             Self.scanStorageFootprints(candidatePathsByProvider: request.candidatePathsByProvider)
-        }.value
+        }
+        let footprints = await withTaskCancellationHandler {
+            await scanTask.value
+        } onCancel: {
+            scanTask.cancel()
+        }
 
-        guard generation == self.storageRefreshGeneration else { return }
+        guard !Task.isCancelled,
+              self.sessionIsActive,
+              generation == self.storageRefreshGeneration
+        else { return }
         self.applyStorageFootprints(
             footprints,
             providers: request.providers,
@@ -80,6 +98,7 @@ extension UsageStore {
     }
 
     func scheduleStorageFootprintRefresh(for providers: [UsageProvider], force: Bool = false) {
+        guard self.sessionIsActive else { return }
         guard self.settings.providerStorageFootprintsEnabled else {
             self.clearStorageFootprints()
             return
@@ -125,6 +144,7 @@ extension UsageStore {
                 await MainActor.run { [weak self] in
                     guard let self,
                           !Task.isCancelled,
+                          self.sessionIsActive,
                           generation == self.storageRefreshGeneration
                     else { return }
                     self.providerStorageFootprints.removeAll()
@@ -142,6 +162,7 @@ extension UsageStore {
             await MainActor.run { [weak self] in
                 guard let self,
                       !Task.isCancelled,
+                      self.sessionIsActive,
                       generation == self.storageRefreshGeneration
                 else { return }
 

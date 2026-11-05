@@ -4,6 +4,57 @@ import Testing
 
 struct CostUsageFetcherTests {
     @Test
+    func `overview window does not widen provider card history`() async throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 4, day: 8)
+        let yesterday = day.addingTimeInterval(-24 * 60 * 60)
+        try Self.writeCodexSessionFile(
+            homeRoot: env.codexHomeRoot, env: env, day: day, filename: "today.jsonl", tokens: 10)
+        try Self.writeCodexSessionFile(
+            homeRoot: env.codexHomeRoot, env: env, day: yesterday, filename: "yesterday.jsonl", tokens: 100)
+        let options = CostUsageScanner.Options(cacheRoot: env.cacheRoot)
+        let card = try await CostUsageFetcher.loadTokenSnapshot(
+            provider: .codex, now: day, codexHomePath: env.codexHomeRoot.path, historyDays: 1,
+            refreshPricing: false, scannerOptions: options)
+        let overview = try await CostUsageFetcher.loadTokenSnapshot(
+            provider: .codex, now: day, historyDays: 30, refreshPricing: false, scannerOptions: options,
+            codexHomePaths: [env.codexHomeRoot.path])
+        #expect(card.historyDays == 1)
+        #expect(card.daily.count == 1)
+        #expect(card.last30DaysTokens == 10)
+        #expect(overview.historyDays == 30)
+        #expect(overview.daily.count == 2)
+        #expect(overview.last30DaysTokens == 110)
+    }
+
+    @Test
+    func `all codex homes include unique sessions and deduplicate copied history`() async throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 4, day: 8)
+        let managed = env.root.appendingPathComponent("managed")
+        try Self.writeCodexSessionFile(
+            homeRoot: env.codexHomeRoot, env: env, day: day, filename: "original.jsonl", tokens: 100)
+        try Self.writeCodexSessionFile(
+            homeRoot: managed, env: env, day: day, filename: "unique.jsonl", tokens: 10)
+        let original = env.codexSessionsRoot.appendingPathComponent("2026/04/08/original.jsonl")
+        let metadata = try env.jsonl([["type": "session_meta", "payload": ["id": "copied-session"]]])
+        let contents = try String(contentsOf: original, encoding: .utf8)
+        try (metadata + contents).write(to: original, atomically: true, encoding: .utf8)
+        let copied = managed.appendingPathComponent("sessions/2026/04/08/copied.jsonl")
+        try FileManager.default.copyItem(at: original, to: copied)
+        let options = CostUsageScanner.Options(cacheRoot: env.cacheRoot)
+        for _ in 0..<2 {
+            let snapshot = try await CostUsageFetcher.loadTokenSnapshot(
+                provider: .codex, now: day, refreshPricing: false, scannerOptions: options,
+                codexHomePaths: [env.codexHomeRoot.path, managed.path, managed.path])
+            #expect(snapshot.sessionTokens == 110)
+            #expect(snapshot.daily.count == 1)
+        }
+    }
+
+    @Test
     func `fetcher scopes codex history to selected codex home`() async throws {
         let env = try CostUsageTestEnvironment()
         defer { env.cleanup() }

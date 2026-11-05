@@ -36,6 +36,7 @@ extension StatusItemController {
         self.menuBarVisibilityWatchdogTask?.cancel()
         self.menuBarVisibilityWatchdogTask = nil
         self.lastMenuBarVisibilityWatchdogSignature = nil
+        self.hasAttemptedWatchdogStatusItemRecovery = false
         self.lastMenuBarStatusItemRecoveryAt = nil
         self.pendingScreenChangePreviousCount = nil
         self.animationDriver?.stop()

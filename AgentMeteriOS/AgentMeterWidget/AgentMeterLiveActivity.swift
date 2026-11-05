@@ -8,20 +8,21 @@ import ActivityKit
 struct AgentMeterLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AgentMeterActivityAttributes.self) { context in
-            AgentMeterLiveActivityView(snapshot: context.state.snapshot)
+            AgentMeterLiveActivityView(snapshot: context.state.snapshot, isActivityStale: context.isStale)
                 .activityBackgroundTint(Color(.systemBackground))
                 .activitySystemActionForegroundColor(.accentColor)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     providerIslandLine(
-                        context.state.snapshot.providers.first { $0.id == "claude" },
-                        generatedAt: context.state.snapshot.generatedAt)
+                        context.state.snapshot.providers.first { ($0.providerID ?? $0.id) == "claude" && $0.isActiveCLI == true }
+                            ?? context.state.snapshot.providers.first { ($0.providerID ?? $0.id) == "claude" },
+                        isActivityStale: context.isStale)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     providerIslandLine(
                         context.state.snapshot.providers.first { $0.id == "codex" },
-                        generatedAt: context.state.snapshot.generatedAt)
+                        isActivityStale: context.isStale)
                 }
                 DynamicIslandExpandedRegion(.center) {
                     HStack(spacing: 4) {
@@ -48,16 +49,33 @@ struct AgentMeterLiveActivity: Widget {
         }
     }
 
-    private func providerIslandLine(_ provider: AgentMeterActivityProvider?, generatedAt: Date) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+    private func providerIslandLine(
+        _ provider: AgentMeterActivityProvider?,
+        isActivityStale: Bool)
+        -> some View
+    {
+        let referenceDate = Date()
+        return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
                 AgentMeterProviderIcon(providerID: provider?.id ?? "", size: 12)
                 Text(provider?.displayName ?? "NA")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            AgentMeterActivityWindowMiniLine(title: "S", window: provider?.sessionWindow, generatedAt: generatedAt)
-            AgentMeterActivityWindowMiniLine(title: "W", window: provider?.weeklyWindow, generatedAt: generatedAt)
+            AgentMeterActivityWindowMiniLine(
+                title: "S",
+                window: provider?.sessionWindow,
+                isStale: provider?.isStale(
+                    reference: referenceDate,
+                    activityIsStale: isActivityStale) ?? isActivityStale,
+                referenceDate: referenceDate)
+            AgentMeterActivityWindowMiniLine(
+                title: "W",
+                window: provider?.weeklyWindow,
+                isStale: provider?.isStale(
+                    reference: referenceDate,
+                    activityIsStale: isActivityStale) ?? isActivityStale,
+                referenceDate: referenceDate)
         }
     }
 }
@@ -65,6 +83,7 @@ struct AgentMeterLiveActivity: Widget {
 @available(iOSApplicationExtension 16.2, *)
 private struct AgentMeterLiveActivityView: View {
     let snapshot: AgentMeterActivitySnapshot
+    let isActivityStale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -78,10 +97,11 @@ private struct AgentMeterLiveActivityView: View {
                     .foregroundStyle(.secondary)
             }
             HStack(alignment: .top, spacing: 12) {
-                ForEach(self.snapshot.providers.prefix(2)) { provider in
+                ForEach(self.snapshot.providers) { provider in
                     AgentMeterActivityProviderColumn(
                         provider: provider,
-                        generatedAt: self.snapshot.generatedAt)
+                        generatedAt: self.snapshot.generatedAt,
+                        isActivityStale: self.isActivityStale)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -95,16 +115,32 @@ private struct AgentMeterLiveActivityView: View {
 private struct AgentMeterActivityProviderColumn: View {
     let provider: AgentMeterActivityProvider
     let generatedAt: Date
+    let isActivityStale: Bool
 
     var body: some View {
+        let referenceDate = Date()
+        let isStale = self.provider.isStale(
+            reference: referenceDate,
+            activityIsStale: self.isActivityStale)
+        let observationDate = self.provider.updatedAt ?? self.generatedAt
         VStack(alignment: .leading, spacing: 6) {
             AgentMeterProviderLockup(
                 providerID: self.provider.id,
                 fallbackTitle: self.provider.displayName,
                 iconSize: 14,
                 wordmarkHeight: 12)
-            AgentMeterActivityWindowLine(title: "Session", window: self.provider.sessionWindow, generatedAt: self.generatedAt)
-            AgentMeterActivityWindowLine(title: "Weekly", window: self.provider.weeklyWindow, generatedAt: self.generatedAt)
+            AgentMeterActivityWindowLine(
+                title: "Session",
+                window: self.provider.sessionWindow,
+                observationDate: observationDate,
+                isStale: isStale,
+                referenceDate: referenceDate)
+            AgentMeterActivityWindowLine(
+                title: "Weekly",
+                window: self.provider.weeklyWindow,
+                observationDate: observationDate,
+                isStale: isStale,
+                referenceDate: referenceDate)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -114,13 +150,18 @@ private struct AgentMeterActivityProviderColumn: View {
 private struct AgentMeterActivityWindowLine: View {
     let title: String
     let window: AgentMeterActivityWindow?
-    let generatedAt: Date
+    let observationDate: Date
+    let isStale: Bool
+    let referenceDate: Date
 
     private var phoneWindow: AgentMeterPhoneUsageWindow? {
         self.window?.phoneWindow()
     }
 
     var body: some View {
+        let projection = self.isStale ? nil : self.phoneWindow?.paceProjection(
+            observedAt: self.observationDate,
+            referenceDate: self.referenceDate)
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Text(self.title)
@@ -132,17 +173,21 @@ private struct AgentMeterActivityWindowLine: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            AgentMeterActivityPaceBar(window: self.phoneWindow, generatedAt: self.generatedAt, height: 5)
+            AgentMeterActivityPaceBar(
+                window: self.phoneWindow,
+                projection: projection,
+                height: 5)
         }
     }
 
     private var trailingText: String {
         let percent = AgentMeterFormat.percent(self.window?.usedPercent)
-        guard let phoneWindow,
+        guard !self.isStale,
+              let phoneWindow,
               let reset = AgentMeterFormat.resetMetricText(
                 resetsAt: phoneWindow.resetsAt,
                 resetDescription: phoneWindow.resetDescription,
-                from: self.generatedAt)
+                from: self.referenceDate)
         else {
             return "\(percent) used"
         }
@@ -154,7 +199,8 @@ private struct AgentMeterActivityWindowLine: View {
 private struct AgentMeterActivityWindowMiniLine: View {
     let title: String
     let window: AgentMeterActivityWindow?
-    let generatedAt: Date
+    let isStale: Bool
+    let referenceDate: Date
 
     var body: some View {
         HStack(spacing: 3) {
@@ -174,18 +220,18 @@ private struct AgentMeterActivityWindowMiniLine: View {
     }
 
     private var resetText: String? {
-        guard let phoneWindow = self.window?.phoneWindow() else { return nil }
+        guard !self.isStale, let phoneWindow = self.window?.phoneWindow() else { return nil }
         return AgentMeterFormat.resetMetricText(
             resetsAt: phoneWindow.resetsAt,
             resetDescription: phoneWindow.resetDescription,
-            from: self.generatedAt)
+            from: self.referenceDate)
     }
 }
 
 @available(iOSApplicationExtension 16.2, *)
 private struct AgentMeterActivityPaceBar: View {
     let window: AgentMeterPhoneUsageWindow?
-    let generatedAt: Date
+    let projection: AgentMeterPaceProjection?
     let height: CGFloat
 
     private var usedFraction: Double {
@@ -201,7 +247,7 @@ private struct AgentMeterActivityPaceBar: View {
                 Capsule()
                     .fill(Color.accentColor)
                     .frame(width: max(self.height, width * self.usedFraction))
-                if let projection = self.window?.paceProjection(generatedAt: self.generatedAt) {
+                if let projection {
                     Rectangle()
                         .fill(projection.emptiesBeforeReset ? Color.red : Color.secondary)
                         .frame(width: 2)

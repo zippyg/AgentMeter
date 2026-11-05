@@ -6,6 +6,59 @@ import Testing
 @MainActor
 struct UsageStoreWidgetSnapshotTests {
     @Test
+    func `widget snapshot carries generic extra rate windows into agentmeter summary`() async throws {
+        let suite = "UsageStoreWidgetSnapshotTests-generic-extra-windows"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: testConfigStore(suiteName: suite),
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        settings.statusChecksEnabled = false
+
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 90, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
+            secondary: RateWindow(usedPercent: 12, windowMinutes: 10080, resetsAt: nil, resetDescription: nil),
+            tertiary: nil,
+            extraRateWindows: [
+                NamedRateWindow(
+                    id: "claude-fable",
+                    title: "Fable",
+                    window: RateWindow(usedPercent: 17, windowMinutes: 10080, resetsAt: nil, resetDescription: nil)),
+            ],
+            updatedAt: Date(),
+            identity: ProviderIdentitySnapshot(
+                providerID: .claude,
+                accountEmail: nil,
+                accountOrganization: nil,
+                loginMethod: "Claude CLI"))
+
+        store._setSnapshotForTesting(snapshot, provider: .claude)
+
+        var agentMeterSnapshots: [AgentMeterSnapshot] = []
+        store._test_widgetSnapshotSaveOverride = { _ in }
+        store._test_agentMeterSnapshotSaveOverride = { agentMeterSnapshots.append($0) }
+        defer {
+            store._test_widgetSnapshotSaveOverride = nil
+            store._test_agentMeterSnapshotSaveOverride = nil
+        }
+
+        store.persistWidgetSnapshot(reason: "generic-extra-window-test")
+        await store.widgetSnapshotPersistTask?.value
+
+        let provider = try #require(agentMeterSnapshots.last?.providers.first { $0.id == "claude" })
+        #expect(provider.windows.map(\.id) == ["session", "weekly", "claude-fable"])
+        #expect(provider.windows.map(\.title) == ["Session", "Weekly", "Fable"])
+        #expect(provider.windows.map(\.usedPercent) == [90, 12, 17])
+    }
+
+    @Test
     func `widget snapshot includes antigravity grouped usage rows`() async throws {
         let suite = "UsageStoreWidgetSnapshotTests-antigravity-grouped"
         let defaults = try #require(UserDefaults(suiteName: suite))

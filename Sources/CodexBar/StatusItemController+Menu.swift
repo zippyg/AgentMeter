@@ -587,7 +587,32 @@ extension StatusItemController {
         menu.addItem(item)
     }
 
+    private func addAllAccountsUsageCard(
+        to menu: NSMenu,
+        scope: AllAccountsDashboardModel.Scope,
+        width: CGFloat)
+    {
+        guard self.settings.costUsageEnabled else { return }
+        let now = Date()
+        guard let model = UsageMenuCardView.Model.allAccountsDashboard(
+            sources: self.store.allAccountsUsageSources(now: now), scope: scope,
+            exportFailures: self.store.sharedCostExportFailures,
+            accountLabels: self.store.claudeSubscriptionLabels(),
+            accountKeyGroups: Array(ClaudeSwapUsage.accountKeys().values), now: now) else { return }
+        let item = self.makeMenuCardItem(
+            AllAccountsUsageCard(model: model, width: width),
+            id: "sharedUsageDashboard-\(scope.rawValue)", width: width,
+            heightCacheFingerprint: model.heightFingerprint)
+        item.title = scope.title
+        menu.addItem(item)
+        menu.addItem(.separator())
+    }
+
     private func addMenuCards(to menu: NSMenu, context: MenuCardContext) -> Bool {
+        if context.currentProvider == .claude, self.store.claudeSwapAccounts != nil {
+            self.addStackedMenuCards(self.claudeSwapMenuCardModels(), to: menu, context: context)
+            return false
+        }
         if let codexAccountDisplay = context.codexAccountDisplay, codexAccountDisplay.showAll {
             self.addStackedCodexMenuCards(codexAccountDisplay, to: menu, context: context)
             return false
@@ -716,6 +741,7 @@ extension StatusItemController {
         captureMenu: NSMenu? = nil)
     {
         if switcherSelection == .overview {
+            self.addAllAccountsUsageCard(to: menu, scope: .overview, width: context.menuWidth)
             if !self.addAgentMeterSummaryIfNeeded(to: menu, width: context.menuWidth) {
                 self.addOverviewEmptyState(to: menu, enabledProviders: self.store.enabledProvidersForDisplay())
             }
@@ -740,6 +766,14 @@ extension StatusItemController {
                 width: context.menuWidth)
             {
                 menu.addItem(.separator())
+            }
+            // Account limit cards lead; the token and cost analytics sit below them.
+            if (context.currentProvider == .claude && self.store.claudeSwapAccounts != nil)
+                || context.currentProvider == .codex
+            {
+                self.addAllAccountsUsageCard(
+                    to: menu, scope: context.currentProvider == .claude ? .claude : .codex,
+                    width: context.menuWidth)
             }
         }
     }

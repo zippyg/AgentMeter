@@ -18,7 +18,7 @@ Archives stale AgentMeter .app bundles from .agentmeter-artifacts so macOS canno
 discovering old timestamped apps as menu-bar/background items.
 
 Default is dry-run. --apply unregisters each found bundle from LaunchServices and
-moves it to .agentmeter-artifacts/archived-app-bundles/<timestamp>/<name>.app.archived.
+compresses it under .agentmeter-artifacts/archived-app-bundles/<timestamp>.
 
 This script never touches /Applications/AgentMeter.app, DashPad, Codex, provider
 caches, Keychain, or generic Item-0 menu-bar preferences.
@@ -98,20 +98,21 @@ printf 'original_path\tarchived_path\tbundle_id\tdisplay_name\tcodesign_identifi
 
 for app in "${apps[@]}"; do
   base="$(basename "${app}")"
-  dest="${ARCHIVE_ROOT}/${base}.archived"
+  dest="${ARCHIVE_ROOT}/${base%.app}-bundle.zip"
   bundle_id="$(plist_value "${app}" CFBundleIdentifier)"
   display_name="$(plist_value "${app}" CFBundleDisplayName)"
   signing_id="$(codesign_identifier "${app}")"
 
   if [[ -e "${dest}" ]]; then
-    dest="${ARCHIVE_ROOT}/${base}.archived.${STAMP}.$$"
+    dest="${ARCHIVE_ROOT}/${base%.app}-bundle.${STAMP}.$$.zip"
   fi
 
   echo "Unregistering ${app}"
   "${LSREGISTER}" -u "${app}" >/dev/null 2>&1 || true
 
   echo "Archiving ${base} -> ${dest}"
-  /bin/mv "${app}" "${dest}"
+  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "${app}" "${dest}"
+  /bin/rm -R "${app}"
   printf '%s\t%s\t%s\t%s\t%s\n' \
     "${app}" \
     "${dest}" \

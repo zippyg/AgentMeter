@@ -6,8 +6,31 @@ import Glibc
 import Foundation
 
 public enum ProviderVersionDetector {
-    public static func claudeVersion() -> String? {
-        guard let path = TTYCommandRunner.which("claude") else { return nil }
+    private static let claudeVersionLock = NSLock()
+    nonisolated(unsafe) private static var claudeVersionCache: [String: (checkedAt: Date, version: String?)] = [:]
+
+    public static func claudeVersion(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> String?
+    {
+        guard let path = ClaudeCLIResolver.resolvedBinaryPath(environment: environment) else { return nil }
+        return self.detectClaudeVersion(path: path) { self.runClaudeVersionCommand(path: path) }
+    }
+
+    static func detectClaudeVersion(path: String, now: Date = Date(), probe: () -> String?) -> String? {
+        self.claudeVersionLock.withLock {
+            if ProviderInteractionContext.current == .background,
+               let cached = self.claudeVersionCache[path],
+               now.timeIntervalSince(cached.checkedAt) < 5 * 60
+            {
+                return cached.version
+            }
+            let version = probe()
+            self.claudeVersionCache[path] = (now, version)
+            return version
+        }
+    }
+
+    private static func runClaudeVersionCommand(path: String) -> String? {
         do {
             let out = try TTYCommandRunner().run(
                 binary: path,

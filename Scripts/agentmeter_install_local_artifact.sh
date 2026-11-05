@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="${1:-}"
 latest_app="$(find "${ROOT_DIR}/.agentmeter-artifacts" -maxdepth 1 -type d -name 'AgentMeter-release-*.app' -print | sort | tail -1)"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 if [[ -z "${APP}" ]]; then
   APP="${latest_app}"
@@ -55,18 +56,139 @@ end run
 APPLESCRIPT
 }
 
-agentmeter_macos_pids() {
+archive_installed_app() {
+  local path="$1"
+  [[ -e "${path}" ]] || return 0
+
+  local stamp
+  local archive_dir
+  local archived_path
+  local bundle_name
+  local quarantined_path
+  stamp="$(date -u +"%Y%m%d-%H%M%SZ")"
+  archive_dir="${ROOT_DIR}/.agentmeter-artifacts/archived-installed-app-bundles/${stamp}"
+  bundle_name="$(basename "${path}")"
+  archived_path="${archive_dir}/${bundle_name%.app}-bundle.zip"
+  if [[ -e "${archived_path}" ]]; then
+    archived_path="${archive_dir}/${bundle_name%.app}-bundle.${stamp}.$$.zip"
+  fi
+  quarantined_path="${archive_dir}/${bundle_name%.app}-bundle.staging.$$"
+
+  mkdir -p "${archive_dir}"
+  /bin/chmod 700 "${archive_dir}"
+  "${LSREGISTER}" -u "${path}" >/dev/null 2>&1 || true
+  /bin/mv "${path}" "${quarantined_path}"
+  if ! confirm_no_foreign_agentmeter_processes; then
+    /bin/mv "${quarantined_path}" "${path}"
+    "${LSREGISTER}" -f "${path}" >/dev/null 2>&1 || true
+    return 7
+  fi
+  if ! /usr/bin/ditto -c -k --sequesterRsrc --keepParent "${quarantined_path}" "${archived_path}"; then
+    /bin/mv "${quarantined_path}" "${path}"
+    "${LSREGISTER}" -f "${path}" >/dev/null 2>&1 || true
+    return 8
+  fi
+  if ! confirm_no_foreign_agentmeter_processes; then
+    /bin/rm "${archived_path}"
+    /bin/mv "${quarantined_path}" "${path}"
+    "${LSREGISTER}" -f "${path}" >/dev/null 2>&1 || true
+    return 7
+  fi
+  /bin/rm -R "${quarantined_path}"
+  printf 'original_path\tarchived_path\n%s\t%s\n' \
+    "${path}" \
+    "${archived_path}" > "${archive_dir}/manifest.tsv"
+  echo "Archived previous install as ${archived_path}"
+}
+
+agentmeter_macos_pid_records() {
   local pid
+  local pgrep_output
+  local pgrep_status
+  local process_uid
   local executable
-  for pid in $(/usr/bin/pgrep -x AgentMeter 2>/dev/null || true); do
-    executable="$(/bin/ps -p "${pid}" -o comm= 2>/dev/null || true)"
+  local process_record
+  pgrep_output="$(/usr/bin/pgrep -x AgentMeter 2>/dev/null)" || pgrep_status=$?
+  pgrep_status="${pgrep_status:-0}"
+  if [[ "${pgrep_status}" -eq 1 ]]; then
+    return 0
+  elif [[ "${pgrep_status}" -ne 0 ]]; then
+    echo "ERROR: Could not enumerate AgentMeter processes safely." >&2
+    return 70
+  fi
+  for pid in ${pgrep_output}; do
+    if ! process_record="$(/bin/ps -p "${pid}" -o uid= -o comm= 2>/dev/null)"; then
+      echo "ERROR: Could not inspect AgentMeter PID ${pid} safely." >&2
+      return 70
+    fi
+    read -r process_uid executable <<<"${process_record}"
+    if [[ -z "${process_uid}" || -z "${executable}" ]]; then
+      echo "ERROR: AgentMeter PID ${pid} returned incomplete process metadata." >&2
+      return 70
+    fi
     case "${executable}" in
       /Applications/AgentMeter.app/Contents/MacOS/AgentMeter|\
       "${ROOT_DIR}"/.agentmeter-artifacts/*/Contents/MacOS/AgentMeter|\
       "${ROOT_DIR}"/.agentmeter-artifacts/probes/*/Contents/MacOS/AgentMeter)
-        echo "${pid}"
+        printf '%s\t%s\n' "${pid}" "${process_uid}"
         ;;
     esac
+  done
+}
+
+agentmeter_macos_pids() {
+  local current_uid
+  local pid
+  local process_uid
+  local records
+  current_uid="$(id -u)"
+  if ! records="$(agentmeter_macos_pid_records)"; then
+    return 70
+  fi
+  while IFS=$'\t' read -r pid process_uid; do
+    [[ -n "${pid}" && "${process_uid}" == "${current_uid}" ]] && echo "${pid}"
+  done <<<"${records}"
+  return 0
+}
+
+agentmeter_foreign_macos_pids() {
+  local current_uid
+  local pid
+  local process_uid
+  local records
+  current_uid="$(id -u)"
+  if ! records="$(agentmeter_macos_pid_records)"; then
+    return 70
+  fi
+  while IFS=$'\t' read -r pid process_uid; do
+    [[ -n "${pid}" && "${process_uid}" != "${current_uid}" ]] && echo "${pid}"
+  done <<<"${records}"
+  return 0
+}
+
+refuse_foreign_agentmeter_processes() {
+  local foreign_pids
+  local raw_foreign_pids
+  if ! raw_foreign_pids="$(agentmeter_foreign_macos_pids)"; then
+    echo "ERROR: Process inspection failed; refusing to replace the shared app bundle." >&2
+    return 70
+  fi
+  foreign_pids="$(/usr/bin/xargs <<<"${raw_foreign_pids}")"
+  if [[ -n "${foreign_pids}" ]]; then
+    echo "ERROR: Another macOS user is currently running AgentMeter." >&2
+    echo "Foreign AgentMeter PID(s): ${foreign_pids}" >&2
+    echo "Quit AgentMeter in the other user session before replacing the shared app bundle." >&2
+    return 7
+  fi
+}
+
+confirm_no_foreign_agentmeter_processes() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    refuse_foreign_agentmeter_processes || return $?
+    if [[ "${attempt}" -lt 5 ]]; then
+      /bin/sleep 0.2
+    fi
   done
 }
 
@@ -76,7 +198,11 @@ agentmeter_launchservices_running() {
 }
 
 agentmeter_running() {
-  if agentmeter_macos_pids | /usr/bin/grep -q .; then
+  local mac_pids
+  if ! mac_pids="$(agentmeter_macos_pids)"; then
+    return 70
+  fi
+  if [[ -n "${mac_pids}" ]]; then
     return 0
   fi
   agentmeter_launchservices_running
@@ -181,6 +307,8 @@ reset_agentmeter_menu_bar_defaults() {
   done
 }
 
+refuse_foreign_agentmeter_processes
+
 echo "Quitting AgentMeter if it is running..."
 /usr/bin/osascript <<'APPLESCRIPT' >/dev/null 2>&1 || true
 try
@@ -254,12 +382,14 @@ trap cleanup_tmp EXIT
 echo "Copying ${APP}..."
 /usr/bin/ditto "${APP}" "${TMP_APP}"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "${TMP_APP}" >/dev/null
+refuse_foreign_agentmeter_processes
 
 if [[ -e /Applications/AgentMeter.app ]]; then
-  trash_path /Applications/AgentMeter.app
+  archive_installed_app /Applications/AgentMeter.app
 fi
 
 /bin/mv "${TMP_APP}" /Applications/AgentMeter.app
+"${LSREGISTER}" -f /Applications/AgentMeter.app >/dev/null 2>&1 || true
 trap - EXIT
 
 if [[ "${AGENTMETER_ARCHIVE_LOCAL_APP_ARTIFACTS:-1}" == "1" ]]; then

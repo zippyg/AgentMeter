@@ -27,7 +27,7 @@ struct AgentMeterMenuSummaryTests {
 
         let model = AgentMeterMenuSummaryModel(snapshot: snapshot, now: now)
 
-        #expect(model.rows.map(\.id) == [UsageProvider.claude, UsageProvider.codex])
+        #expect(model.rows.map(\.provider) == [UsageProvider.claude, UsageProvider.codex])
         #expect(model.rows[0].sessionLine == "Session: 30% used")
         #expect(model.rows[0].weeklyLine == "Weekly: 60% used")
         #expect(model.rows[0].resetLine == "Session reset in 1h")
@@ -126,5 +126,36 @@ struct AgentMeterMenuSummaryTests {
             status: .ok,
             updatedAt: reset ?? Date(timeIntervalSince1970: 1_700_000_000),
             staleAfter: staleAfter)
+    }
+}
+
+extension AgentMeterMenuSummaryTests {
+    @Test func summaryShowsBothAccountsWithScopedUsageSpendAndActiveMarker() throws {
+        let now = Date()
+        let accounts = try ClaudeSwapUsage.parse(Data(#"""
+        {"schemaVersion":1,"activeAccountNumber":2,"accounts":[
+          {"number":1,"usageStatus":"ok","usage":{"fiveHour":{"pct":10},
+            "scoped":[{"name":"Sonnet","pct":22}],"spend":{"used":3,"limit":20,"currency":"GBP"}}},
+          {"number":2,"usageStatus":"ok","usage":{"sevenDay":{"pct":90}}}
+        ]}
+        """#.utf8), now: now)
+        let codex = AgentMeterProviderSnapshot(
+            id: "codex",
+            displayName: "Codex",
+            windows: [],
+            creditsUsed: 2,
+            creditsRemaining: 8,
+            source: AgentMeterSourceDescriptor(confidence: .local, label: "test"),
+            status: .ok,
+            updatedAt: now,
+            staleAfter: nil)
+        let model = AgentMeterMenuSummaryModel(
+            snapshot: AgentMeterSnapshot(generatedAt: now, providers: accounts + [codex]), now: now)
+        #expect(model.rows.map(\.id) == ["claude:cswap:1", "claude:cswap:2", "codex"])
+        #expect(model.rows[1].title == "Claude · Account 2 · CLI active")
+        #expect(model.rows[1].sessionLine == "Session: unavailable")
+        #expect(model.rows[0].detailLines.contains("Sonnet: 22% used"))
+        #expect(model.rows[0].detailLines.contains { $0.hasPrefix("Extra usage:") })
+        #expect(model.rows[2].detailLines.contains("Credits used (reported history): 2"))
     }
 }

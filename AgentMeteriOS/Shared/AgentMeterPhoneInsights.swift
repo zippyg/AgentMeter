@@ -60,9 +60,9 @@ struct AgentMeterPaceProjection: Equatable, Sendable {
     var markerPercent: Double
     var emptiesBeforeReset: Bool
 
-    var label: String {
+    func label(referenceDate: Date) -> String {
         if self.emptiesBeforeReset {
-            "Projected empty \(AgentMeterFormat.relative(self.projectedAt))"
+            "Projected empty \(AgentMeterFormat.relative(self.projectedAt, from: referenceDate))"
         } else {
             "Pace survives reset"
         }
@@ -94,9 +94,11 @@ struct AgentMeterPhoneInsights: Equatable, Sendable {
     var combinedDailyUsage: [AgentMeterPhoneDailyUsagePoint]
     var totalsByRange: [AgentMeterUsageRange: AgentMeterRangeTotals]
 
-    init(snapshot: AgentMeterPhoneSnapshot) {
+    init(snapshot: AgentMeterPhoneSnapshot, referenceDate: Date = Date()) {
         self.providerCount = snapshot.providers.count
-        self.attentionProviderCount = snapshot.providers.filter { $0.status != .ok }.count
+        self.attentionProviderCount = snapshot.providers.filter {
+            $0.displayStatus(reference: referenceDate) != .ok
+        }.count
         self.currencyCode = snapshot.providers.compactMap(\.tokenUsage?.currencyCode).first ?? "USD"
 
         let sessionTokens = snapshot.providers.compactMap(\.tokenUsage?.sessionTokens)
@@ -117,7 +119,9 @@ struct AgentMeterPhoneInsights: Equatable, Sendable {
 
         self.nextReset = snapshot.providers
             .flatMap { provider in
-                provider.windows.compactMap { window -> Reset? in
+                guard !provider.isStale(reference: referenceDate) else { return [Reset]() }
+                return provider.windows.compactMap { window -> Reset? in
+                    if let resetsAt = window.resetsAt, resetsAt <= referenceDate { return nil }
                     guard window.resetsAt != nil || window.resetDescription != nil else { return nil }
                     return Reset(
                         providerID: provider.id,
@@ -182,6 +186,15 @@ struct AgentMeterPhoneInsights: Equatable, Sendable {
 }
 
 extension AgentMeterPhoneProvider {
+    func paceProjection(
+        for window: AgentMeterPhoneUsageWindow,
+        referenceDate: Date)
+        -> AgentMeterPaceProjection?
+    {
+        guard !self.isStale(reference: referenceDate) else { return nil }
+        return window.paceProjection(observedAt: self.updatedAt, referenceDate: referenceDate)
+    }
+
     func usage(for range: AgentMeterUsageRange, generatedAt: Date) -> AgentMeterRangeUsage {
         switch range {
         case .currentSession:
@@ -233,9 +246,10 @@ extension AgentMeterPhoneProvider {
 }
 
 extension AgentMeterPhoneUsageWindow {
-    func paceProjection(generatedAt: Date) -> AgentMeterPaceProjection? {
+    func paceProjection(observedAt: Date, referenceDate: Date) -> AgentMeterPaceProjection? {
         guard let usedPercent, usedPercent > 0,
               let resetsAt,
+              resetsAt > referenceDate,
               let windowMinutes,
               windowMinutes > 0
         else {
@@ -244,13 +258,14 @@ extension AgentMeterPhoneUsageWindow {
 
         let windowDuration = TimeInterval(windowMinutes * 60)
         let start = resetsAt.addingTimeInterval(-windowDuration)
-        let elapsed = generatedAt.timeIntervalSince(start)
+        let elapsed = observedAt.timeIntervalSince(start)
         guard elapsed > 0 else { return nil }
 
         let projectedDuration = elapsed / (usedPercent / 100)
         guard projectedDuration.isFinite, projectedDuration > 0 else { return nil }
 
         let projectedAt = start.addingTimeInterval(projectedDuration)
+        guard projectedAt > referenceDate else { return nil }
         return AgentMeterPaceProjection(
             projectedAt: projectedAt,
             resetAt: resetsAt,

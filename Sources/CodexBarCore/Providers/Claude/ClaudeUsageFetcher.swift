@@ -56,6 +56,16 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
     case parseFailed(String)
     case oauthFailed(String)
 
+    public static func isClaudeOAuthUsageRateLimit(_ error: Error) -> Bool {
+        if let fetchError = error as? ClaudeOAuthFetchError,
+           case .rateLimited = fetchError
+        {
+            return true
+        }
+        guard case let ClaudeUsageError.oauthFailed(message) = error else { return false }
+        return ClaudeOAuthFetchError.isUsageRateLimitDescription(message)
+    }
+
     public var errorDescription: String? {
         switch self {
         case .claudeNotInstalled:
@@ -211,7 +221,9 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
         [String: String],
         Bool,
         Bool) async throws -> ClaudeOAuthCredentials)?
-    @TaskLocal static var fetchOAuthUsageOverride: (@Sendable (String) async throws -> OAuthUsageResponse)?
+    @TaskLocal static var fetchOAuthUsageOverride: (@Sendable (
+        String,
+        Bool) async throws -> OAuthUsageResponse)?
     @TaskLocal static var delegatedRefreshAttemptOverride: (@Sendable (
         Date,
         TimeInterval,
@@ -289,7 +301,10 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
                     }
 
                 try self.validateRequiredOAuthScope(credentials)
-                let usage = try await ClaudeUsageFetcher.fetchOAuthUsage(accessToken: credentials.accessToken)
+                let usage = try await ClaudeUsageFetcher.fetchOAuthUsage(
+                    accessToken: credentials.accessToken,
+                    detectClaudeVersion: self.fetcher.runtime == .app && ProviderInteractionContext.current == .userInitiated,
+                    environment: self.fetcher.environment)
                 return try ClaudeUsageFetcher.mapOAuthUsage(usage, credentials: credentials)
             } catch let error as CancellationError {
                 throw error
@@ -425,7 +440,9 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
 
                 try self.validateRequiredOAuthScope(refreshedCredentials)
                 let usage = try await ClaudeUsageFetcher.fetchOAuthUsage(
-                    accessToken: refreshedCredentials.accessToken)
+                    accessToken: refreshedCredentials.accessToken,
+                    detectClaudeVersion: self.fetcher.runtime == .app && ProviderInteractionContext.current == .userInitiated,
+                    environment: self.fetcher.environment)
                 return try ClaudeUsageFetcher.mapOAuthUsage(usage, credentials: refreshedCredentials)
             } catch {
                 ClaudeUsageFetcher.log.debug(
@@ -572,11 +589,19 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
         }
 
         private func loadViaCLI(model: String, timeout: TimeInterval) async throws -> ClaudeUsageSnapshot {
+            if ClaudeCLIRateLimitGate.blockedUntil() != nil {
+                throw ClaudeUsageError.parseFailed(ClaudeCLIRateLimitGate.message)
+            }
+
             var snapshot: ClaudeUsageSnapshot
             do {
                 snapshot = try await self.fetcher.loadViaPTY(model: model, timeout: timeout)
             } catch {
                 if error is CancellationError { throw error }
+                if ClaudeUsageFetcher.isCLIRateLimitError(error) {
+                    ClaudeCLIRateLimitGate.recordRateLimit()
+                    throw error
+                }
                 guard Self.shouldTryDirectCLIUsage(after: error) else { throw error }
                 let ptyError = error
                 do {
@@ -584,10 +609,15 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
                         timeout: Self.directCLIUsageTimeout(for: timeout))
                 } catch let directError {
                     if directError is CancellationError { throw directError }
+                    if ClaudeUsageFetcher.isCLIRateLimitError(directError) {
+                        ClaudeCLIRateLimitGate.recordRateLimit()
+                        throw directError
+                    }
                     guard Self.directCLIErrorShouldReplacePTYError(directError) else { throw ptyError }
                     throw directError
                 }
             }
+            ClaudeCLIRateLimitGate.recordSuccess()
             snapshot = await self.fetcher.applyWebExtrasIfNeeded(to: snapshot)
             return snapshot
         }
@@ -610,7 +640,9 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
             if case ClaudeStatusProbeError.timedOut = error { return true }
             if case let ClaudeStatusProbeError.parseFailed(message) = error {
                 let lower = message.lowercased()
-                return lower.contains("still loading usage") || lower.contains("could not load usage data")
+                return lower.contains("still loading usage")
+                    || lower.contains("could not load usage data")
+                    || lower.contains("subscription")
             }
             let message = error.localizedDescription.lowercased()
             return message.contains("timed out") || message.contains("timeout")
@@ -636,6 +668,10 @@ extension ClaudeUsageFetcher {
     }
 
     private static func parse(output: String) throws -> ClaudeUsageSnapshot {
+        if self.isSubscriptionNoticeOnly(output) {
+            return self.makeSubscriptionNoticeSnapshot(rawText: output, identity: nil)
+        }
+
         guard
             let data = output.data(using: .utf8),
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -734,7 +770,7 @@ extension ClaudeUsageFetcher {
     // MARK: - Public API
 
     public func detectVersion() -> String? {
-        ProviderVersionDetector.claudeVersion()
+        ProviderVersionDetector.claudeVersion(environment: self.environment)
     }
 
     public func debugRawProbe(model: String = "sonnet") async -> String {
@@ -757,6 +793,10 @@ extension ClaudeUsageFetcher {
 
     public func loadLatestUsage(model: String = "sonnet") async throws -> ClaudeUsageSnapshot {
         try await StepExecutor(fetcher: self).loadLatestUsage(model: model)
+    }
+
+    public static func isCLIRateLimitError(_ error: Error) -> Bool {
+        ClaudeCLIRateLimitGate.isRateLimitError(error)
     }
 }
 
@@ -819,13 +859,20 @@ extension ClaudeUsageFetcher {
             respectKeychainPromptCooldown: respectKeychainPromptCooldown)
     }
 
-    private static func fetchOAuthUsage(accessToken: String) async throws -> OAuthUsageResponse {
+    private static func fetchOAuthUsage(
+        accessToken: String,
+        detectClaudeVersion: Bool,
+        environment: [String: String]) async throws -> OAuthUsageResponse
+    {
         #if DEBUG
         if let override = fetchOAuthUsageOverride {
-            return try await override(accessToken)
+            return try await override(accessToken, detectClaudeVersion)
         }
         #endif
-        return try await ClaudeOAuthUsageFetcher.fetchUsage(accessToken: accessToken)
+        return try await ClaudeOAuthUsageFetcher.fetchUsage(
+            accessToken: accessToken,
+            detectClaudeVersion: detectClaudeVersion,
+            environment: environment)
     }
 
     private static func attemptDelegatedRefresh(
@@ -1057,7 +1104,7 @@ extension ClaudeUsageFetcher {
         if let routinesKey = usage.sevenDayRoutinesSourceKey {
             Self.log.debug("Claude OAuth extra usage key matched: routines=\(routinesKey)")
         }
-        return definitions.compactMap { definition in
+        var windows: [NamedRateWindow] = definitions.compactMap { definition in
             let utilization: Double
             let resetDate: Date?
             if let window = definition.window, let parsedUtilization = window.utilization {
@@ -1080,6 +1127,14 @@ extension ClaudeUsageFetcher {
                     resetsAt: resetDate,
                     resetDescription: resetDescription))
         }
+        var seenIDs = Set(windows.map(\.id))
+        for limit in usage.limits {
+            guard let window = limit.scopedWeeklyWindow(), seenIDs.insert(window.id).inserted else {
+                continue
+            }
+            windows.append(window)
+        }
+        return windows
     }
 
     // MARK: - Web API path (uses browser cookies)
@@ -1155,8 +1210,9 @@ extension ClaudeUsageFetcher {
             timeout: timeout,
             keepCLISessionsAlive: self.keepCLISessionsAlive)
         let snap = try await probe.fetch()
+        let snapshot = try Self.makeSnapshot(from: snap)
 
-        return try Self.makeSnapshot(from: snap)
+        return self.addingCachedExtraRateWindows(to: snapshot)
     }
 
     private func loadViaDirectCLI(timeout: TimeInterval) async throws -> ClaudeUsageSnapshot {
@@ -1175,14 +1231,59 @@ extension ClaudeUsageFetcher {
 
         let result = try await SubprocessRunner.run(
             binary: claudeBinary,
-            arguments: ["/usage"],
+            arguments: ClaudeCLISession.probeSettingsArguments + ["/usage"],
             environment: environment,
             timeout: timeout,
             standardInput: FileHandle.nullDevice,
             currentDirectoryURL: workingDirectory,
             label: "claude-direct-usage")
+        if Self.isSubscriptionNoticeOnly(result.stdout) {
+            return Self.makeSubscriptionNoticeSnapshot(rawText: result.stdout, identity: nil)
+        }
         let snap = try ClaudeStatusProbe.parse(text: result.stdout)
-        return try Self.makeSnapshot(from: snap)
+        let snapshot = try Self.makeSnapshot(from: snap)
+        return self.addingCachedExtraRateWindows(to: snapshot)
+    }
+
+    private static func isSubscriptionNoticeOnly(_ text: String) -> Bool {
+        let normalized = TextParsing.stripANSICodes(text).lowercased().filter { !$0.isWhitespace }
+        guard normalized.contains("currentlyusingyoursubscription") else { return false }
+        guard normalized.contains("claudecodeusage") else { return false }
+        let hasQuotaData = normalized.contains("currentsession") || normalized.contains("currentweek")
+            || normalized.contains("%used") || normalized.contains("%left") || normalized.contains("%remaining")
+            || normalized.contains("%available")
+        return !hasQuotaData
+    }
+
+    private static func makeSubscriptionNoticeSnapshot(
+        rawText: String,
+        identity: ClaudeAccountIdentity?)
+        -> ClaudeUsageSnapshot
+    {
+        let message = "Claude Code subscription active. Quota percentages unavailable from Claude CLI."
+        let window = RateWindow(
+            usedPercent: 0,
+            windowMinutes: nil,
+            resetsAt: nil,
+            resetDescription: message)
+        return ClaudeUsageSnapshot(
+            primary: window,
+            primaryWindowKind: .spendLimit,
+            secondary: nil,
+            opus: nil,
+            extraRateWindows: [
+                NamedRateWindow(
+                    id: "claude-subscription",
+                    title: "Subscription",
+                    window: window,
+                    usageKnown: false),
+            ],
+            providerCost: nil,
+            updatedAt: Date(),
+            accountEmail: identity?.accountEmail,
+            accountOrganization: identity?.accountOrganization,
+            loginMethod: identity?.loginMethod ?? "Claude subscription",
+            rawText: rawText)
     }
 
     private static func makeSnapshot(from snap: ClaudeStatusSnapshot) throws -> ClaudeUsageSnapshot {
@@ -1194,11 +1295,12 @@ extension ClaudeUsageFetcher {
             guard let left = pctLeft else { return nil }
             let used = max(0, min(100, 100 - Double(left)))
             let resetClean = reset?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resetDate = ClaudeStatusProbe.parseResetDate(from: resetClean)
             return RateWindow(
                 usedPercent: used,
                 windowMinutes: windowMinutes,
-                resetsAt: ClaudeStatusProbe.parseResetDate(from: resetClean),
-                resetDescription: resetClean)
+                resetsAt: resetDate,
+                resetDescription: Self.cliResetDescription(resetClean, resetDate: resetDate))
         }
 
         let primary = makeWindow(
@@ -1225,6 +1327,52 @@ extension ClaudeUsageFetcher {
             accountOrganization: snap.accountOrganization,
             loginMethod: snap.loginMethod,
             rawText: snap.rawText)
+    }
+
+    private func addingCachedExtraRateWindows(to snapshot: ClaudeUsageSnapshot) -> ClaudeUsageSnapshot {
+        let cachedWindows = (try? ClaudeStatusLineUsageCache.load(environment: self.environment))?
+            .extraRateWindows ?? []
+        let extraRateWindows = Self.mergedExtraRateWindows(
+            snapshot.extraRateWindows,
+            cachedWindows)
+        guard extraRateWindows != snapshot.extraRateWindows else { return snapshot }
+        return ClaudeUsageSnapshot(
+            primary: snapshot.primary,
+            primaryWindowKind: snapshot.primaryWindowKind,
+            secondary: snapshot.secondary,
+            opus: snapshot.opus,
+            extraRateWindows: extraRateWindows,
+            providerCost: snapshot.providerCost,
+            updatedAt: snapshot.updatedAt,
+            accountEmail: snapshot.accountEmail,
+            accountOrganization: snapshot.accountOrganization,
+            loginMethod: snapshot.loginMethod,
+            rawText: snapshot.rawText)
+    }
+
+    private static func cliResetDescription(_ raw: String?, resetDate: Date?) -> String? {
+        guard let raw, !raw.isEmpty else {
+            return resetDate.map { "Resets \(Self.formatResetDate($0))" }
+        }
+        guard raw.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              let resetDate
+        else {
+            return raw
+        }
+        return "Resets \(Self.formatResetDate(resetDate))"
+    }
+
+    private static func mergedExtraRateWindows(
+        _ primary: [NamedRateWindow],
+        _ fallback: [NamedRateWindow])
+        -> [NamedRateWindow]
+    {
+        var merged = primary
+        var seenIDs = Set(primary.map(\.id))
+        for window in fallback where seenIDs.insert(window.id).inserted {
+            merged.append(window)
+        }
+        return merged
     }
 
     private func applyWebExtrasIfNeeded(to snapshot: ClaudeUsageSnapshot) async -> ClaudeUsageSnapshot {

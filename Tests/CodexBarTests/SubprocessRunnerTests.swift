@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CodexBarCore
@@ -15,6 +16,53 @@ struct SubprocessRunnerTests {
 
         #expect(result.stdout.count == byteCount)
         #expect(result.stderr.isEmpty)
+    }
+
+    @Test
+    func `rejects truncated stdout explicitly`() async throws {
+        let byteCount = 3_000_000
+        do {
+            _ = try await SubprocessRunner.run(
+                binary: "/usr/bin/python3",
+                arguments: ["-c", "import sys; sys.stdout.write('y' * \(byteCount)); sys.stdout.flush()"],
+                environment: ProcessInfo.processInfo.environment,
+                timeout: 15,
+                label: "python capped stdout")
+            Issue.record("Expected output-limit error")
+        } catch let error as SubprocessRunnerError {
+            guard case let .outputLimitExceeded(label) = error else {
+                Issue.record("Expected output-limit error, got \(error)")
+                return
+            }
+            #expect(label == "python capped stdout")
+        } catch {
+            Issue.record("Expected SubprocessRunnerError, got \(error)")
+        }
+    }
+
+    @Test
+    func `rejects truncated stderr explicitly`() async throws {
+        let byteCount = 3_000_000
+        do {
+            _ = try await SubprocessRunner.run(
+                binary: "/usr/bin/python3",
+                arguments: [
+                    "-c",
+                    "import sys; sys.stderr.write('z' * \(byteCount)); sys.stderr.flush(); sys.exit(7)",
+                ],
+                environment: ProcessInfo.processInfo.environment,
+                timeout: 15,
+                label: "python capped stderr")
+            Issue.record("Expected nonzero subprocess error")
+        } catch let error as SubprocessRunnerError {
+            guard case let .outputLimitExceeded(label) = error else {
+                Issue.record("Expected output-limit error, got \(error)")
+                return
+            }
+            #expect(label == "python capped stderr")
+        } catch {
+            Issue.record("Expected SubprocessRunnerError, got \(error)")
+        }
     }
 
     /// Regression test for #474: a hung subprocess must be killed and throw `.timedOut`
@@ -139,6 +187,53 @@ struct SubprocessRunnerTests {
         #expect(elapsed < 5, "Cancelled subprocess should not wait for timeout or natural exit")
     }
 
+    @Test
+    func `timeout terminates child process tree`() async throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentmeter-subprocess-child-\(UUID().uuidString).pid")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+
+        do {
+            _ = try await SubprocessRunner.run(
+                binary: "/usr/bin/python3",
+                arguments: [
+                    "-c",
+                    """
+                    import pathlib, subprocess, sys, time
+                    child = subprocess.Popen(['/bin/sleep', '30'])
+                    pathlib.Path(sys.argv[1]).write_text(str(child.pid))
+                    sys.stdout.write('ready\\n')
+                    sys.stdout.flush()
+                    time.sleep(30)
+                    """,
+                    pidFile.path,
+                ],
+                environment: ProcessInfo.processInfo.environment,
+                timeout: 1,
+                label: "child-tree-timeout")
+            Issue.record("Expected timeout")
+        } catch let error as SubprocessRunnerError {
+            guard case .timedOut = error else {
+                Issue.record("Expected timeout, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected SubprocessRunnerError, got \(error)")
+        }
+
+        let childPIDText = (try? String(contentsOf: pidFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let childPID = childPIDText.flatMap { pid_t($0) }
+        guard let childPID else {
+            Issue.record("Child PID was not recorded")
+            return
+        }
+        defer { kill(childPID, SIGKILL) }
+
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(Self.processIsRunning(childPID) == false)
+    }
+
     /// Verify that many concurrent SubprocessRunner calls complete without starving each other.
     @Test
     func `concurrent calls do not starve`() async throws {
@@ -160,5 +255,23 @@ struct SubprocessRunnerTests {
             }
             #expect(count == 20, "All 20 concurrent calls should complete")
         }
+    }
+
+    private static func processIsRunning(_ pid: pid_t) -> Bool {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-o", "stat=", "-p", "\(pid)"]
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return kill(pid, 0) == 0
+        }
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !output.isEmpty && !output.hasPrefix("Z")
     }
 }

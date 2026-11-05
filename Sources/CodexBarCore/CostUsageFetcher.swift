@@ -48,7 +48,9 @@ public struct CostUsageFetcher: Sendable {
         allowVertexClaudeFallback: Bool = false,
         codexHomePath: String? = nil,
         historyDays: Int = 30,
-        refreshPricingInBackground: Bool = true) async throws -> CostUsageTokenSnapshot
+        refreshPricingInBackground: Bool = true,
+        refreshPricing: Bool = true,
+        codexHomePaths: [String] = []) async throws -> CostUsageTokenSnapshot
     {
         try await Self.loadTokenSnapshot(
             provider: provider,
@@ -59,7 +61,9 @@ public struct CostUsageFetcher: Sendable {
             codexHomePath: codexHomePath,
             historyDays: historyDays,
             refreshPricingInBackground: refreshPricingInBackground,
-            scannerOptions: self.scannerOptionsOverride())
+            refreshPricing: refreshPricing,
+            scannerOptions: self.scannerOptionsOverride(),
+            codexHomePaths: codexHomePaths)
     }
 
     @available(*, deprecated, message: "Codex token-cost scans are uncapped; this limit is ignored.")
@@ -98,9 +102,11 @@ public struct CostUsageFetcher: Sendable {
         codexHomePath: String? = nil,
         historyDays: Int = 30,
         refreshPricingInBackground: Bool = true,
+        refreshPricing: Bool = true,
         scannerOptions overrideScannerOptions: CostUsageScanner.Options? = nil,
         piScannerOptions overridePiScannerOptions: PiSessionCostScanner
-            .Options? = nil) async throws -> CostUsageTokenSnapshot
+            .Options? = nil,
+        codexHomePaths: [String] = []) async throws -> CostUsageTokenSnapshot
     {
         guard provider == .codex || provider == .claude || provider == .vertexai || provider == .bedrock else {
             throw CostUsageError.unsupportedProvider(provider)
@@ -120,6 +126,10 @@ public struct CostUsageFetcher: Sendable {
         }
 
         var options = overrideScannerOptions ?? CostUsageScanner.Options()
+        if provider == .claude, options.claudeProjectsRoots == nil {
+            options.claudeProjectsRoots = CostUsageScanner.defaultClaudeProjectsRoots(
+                options: options, environment: environment)
+        }
         if provider == .codex,
            let codexHomePath = codexHomePath?.trimmingCharacters(in: .whitespacesAndNewlines),
            !codexHomePath.isEmpty
@@ -127,7 +137,13 @@ public struct CostUsageFetcher: Sendable {
             options.codexSessionsRoot = URL(fileURLWithPath: codexHomePath, isDirectory: true)
                 .appendingPathComponent("sessions", isDirectory: true)
         }
-        if provider == .codex || provider == .claude {
+        if provider == .codex, let firstHome = codexHomePaths.first {
+            options.codexSessionsRoot = URL(fileURLWithPath: firstHome).appendingPathComponent("sessions")
+            options.codexAdditionalSessionsRoots = codexHomePaths.dropFirst().map {
+                URL(fileURLWithPath: $0).appendingPathComponent("sessions")
+            }
+        }
+        if refreshPricing, provider == .codex || provider == .claude {
             let pricingCacheRoot = options.cacheRoot
             if refreshPricingInBackground {
                 Task.detached(priority: .utility) {

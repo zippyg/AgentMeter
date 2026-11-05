@@ -38,16 +38,12 @@ struct TTYCommandRunnerEnvTests {
     }
 
     @Test
-    func `cached CLI sessions share shutdown tracking`() {
+    func `registry tracks process registration`() {
         TTYCommandRunner._test_resetTrackedProcesses()
         defer { TTYCommandRunner._test_resetTrackedProcesses() }
 
-        #expect(TTYCommandRunner.registerActiveProcessForAppShutdown(pid: 3001, binary: "codex"))
-        TTYCommandRunner.updateActiveProcessGroupForAppShutdown(pid: 3001, processGroup: 3001)
+        #expect(TTYCommandRunner._test_registerTrackedProcess(pid: 3001, binary: "codex"))
         #expect(TTYCommandRunner._test_trackedProcessCount() == 1)
-
-        TTYCommandRunner.unregisterActiveProcessForAppShutdown(pid: 3001)
-        #expect(TTYCommandRunner._test_trackedProcessCount() == 0)
     }
 
     @Test
@@ -70,6 +66,24 @@ struct TTYCommandRunnerEnvTests {
 
         #expect(TTYCommandRunner._test_registerTrackedProcess(pid: 2002, binary: "codex") == false)
         #expect(TTYCommandRunner._test_trackedProcessCount() == 0)
+    }
+
+    @Test
+    func `session quiesce blocks launches until activation resumes`() {
+        TTYCommandRunner._test_resetTrackedProcesses()
+        defer { TTYCommandRunner._test_resetTrackedProcesses() }
+
+        #expect(TTYCommandRunner._test_registerTrackedProcess(pid: 2001, binary: "codex"))
+        let drained = TTYCommandRunner._test_drainTrackedProcessesForSessionQuiesce()
+        #expect(drained.count == 1)
+
+        #expect(!TTYCommandRunner._test_registerTrackedProcess(pid: 2002, binary: "codex"))
+        #expect(!TTYCommandRunner._test_beginTrackedProcessLaunch())
+        #expect(TTYCommandRunner._test_trackedProcessCount() == 0)
+
+        TTYCommandRunner._test_resumeTrackedProcessesAfterSessionActivation()
+        #expect(TTYCommandRunner._test_registerTrackedProcess(pid: 2002, binary: "codex"))
+        #expect(TTYCommandRunner._test_trackedProcessCount() == 1)
     }
 
     @Test
@@ -338,6 +352,7 @@ struct TTYCommandRunnerEnvTests {
         else
           echo "deep-link-enabled"
         fi
+        sleep 0.1
         """
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)

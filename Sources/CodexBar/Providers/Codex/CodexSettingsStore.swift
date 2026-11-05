@@ -59,6 +59,14 @@ extension SettingsStore {
         }
     }
 
+    func codexCostHomePaths(environment: [String: String]) throws -> [String] {
+        let defaultHome = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path
+        let ambientHome = environment["CODEX_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let homes = [defaultHome] + (ambientHome.flatMap { $0.isEmpty ? nil : [$0] } ?? [])
+            + (try self.loadManagedCodexAccounts()).accounts.map(\.managedHomePath)
+        return Array(Set(homes)).sorted()
+    }
+
     var activeManagedCodexAccount: ManagedCodexAccount? {
         guard case let .selected(account) = self.managedCodexAccountStoreState() else {
             return nil

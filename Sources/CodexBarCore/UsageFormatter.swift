@@ -141,6 +141,10 @@ public enum UsageFormatter {
             if trimmed.lowercased().hasPrefix("resets ") {
                 return self.localized("Resets %@", String(trimmed.dropFirst("Resets ".count)))
             }
+            // Past tense ("Reset since last reading") is already a full line.
+            if trimmed.lowercased().hasPrefix("reset ") {
+                return trimmed
+            }
             return self.localized("Resets %@", trimmed)
         }
         return nil

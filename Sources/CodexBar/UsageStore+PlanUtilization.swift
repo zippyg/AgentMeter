@@ -39,9 +39,22 @@ extension UsageStore {
         self.planUtilizationHistorySelection(for: provider).histories
     }
 
+    func claudeSwapPlanUtilizationHistories(for account: AgentMeterProviderSnapshot)
+        -> [PlanUtilizationSeriesHistory]
+    {
+        guard let accountKey = account.accountID else { return [] }
+        return self.planUtilizationHistory[.claude]?.histories(for: accountKey) ?? []
+    }
+
     func planUtilizationHistorySelection(for provider: UsageProvider)
         -> (accountKey: String?, histories: [PlanUtilizationSeriesHistory])
     {
+        if provider == .claude, let accounts = self.claudeSwapAccounts {
+            guard let account = accounts.first(where: { $0.isActiveCLI == true }) ?? accounts.first else {
+                return (nil, [])
+            }
+            return (account.accountID, self.claudeSwapPlanUtilizationHistories(for: account))
+        }
         var providerBuckets = self.planUtilizationHistory[provider] ?? PlanUtilizationHistoryBuckets()
         let originalProviderBuckets = providerBuckets
         let accountKey = self.resolvePlanUtilizationAccountKey(
@@ -101,6 +114,7 @@ extension UsageStore {
 
     func shouldHidePlanUtilizationMenuItem(for provider: UsageProvider) -> Bool {
         guard self.supportsPlanUtilizationHistory(for: provider) else { return true }
+        if provider == .claude, self.claudeSwapAccounts != nil { return false }
         return self.shouldShowRefreshingMenuCard(for: provider)
     }
 
@@ -108,6 +122,7 @@ extension UsageStore {
         provider: UsageProvider,
         snapshot: UsageSnapshot,
         account: ProviderTokenAccount? = nil,
+        accountKeyOverride: String? = nil,
         shouldUpdatePreferredAccountKey: Bool = true,
         shouldAdoptUnscopedHistory: Bool = true,
         now: Date = Date())
@@ -116,7 +131,7 @@ extension UsageStore {
         let samples = self.planUtilizationSeriesSamples(provider: provider, snapshot: snapshot, capturedAt: now)
         guard !samples.isEmpty else { return }
 
-        let detectorAccountKey = self.planUtilizationAccountKey(
+        let detectorAccountKey = accountKeyOverride ?? self.planUtilizationAccountKey(
             for: provider,
             snapshot: snapshot,
             preferredAccount: account)
@@ -130,13 +145,14 @@ extension UsageStore {
         }
 
         guard self.supportsPlanUtilizationHistory(for: provider) else { return }
-        guard !self.shouldDeferClaudePlanUtilizationHistory(provider: provider) else { return }
+        guard accountKeyOverride != nil || !self.shouldDeferClaudePlanUtilizationHistory(provider: provider)
+        else { return }
 
         var snapshotToPersist: [UsageProvider: PlanUtilizationHistoryBuckets]?
         await MainActor.run {
             var providerBuckets = self.planUtilizationHistory[provider] ?? PlanUtilizationHistoryBuckets()
             let preferredAccount = account ?? self.settings.selectedTokenAccount(for: provider)
-            let accountKey = self.resolvePlanUtilizationAccountKey(
+            let accountKey = accountKeyOverride ?? self.resolvePlanUtilizationAccountKey(
                 provider: provider,
                 snapshot: snapshot,
                 preferredAccount: preferredAccount,

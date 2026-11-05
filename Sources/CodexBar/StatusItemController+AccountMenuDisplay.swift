@@ -27,6 +27,7 @@ extension StatusItemController {
     }
 
     func tokenAccountMenuDisplay(for provider: UsageProvider) -> TokenAccountMenuDisplay? {
+        if provider == .claude, self.store.claudeSwapAccounts != nil { return nil }
         guard TokenAccountSupportCatalog.support(for: provider) != nil else { return nil }
         let accounts = self.settings.tokenAccounts(for: provider)
         guard accounts.count > 1 else { return nil }

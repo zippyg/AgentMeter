@@ -5,36 +5,54 @@ import Glibc
 #endif
 import Foundation
 
-private enum TTYCommandRunnerActiveProcessRegistry {
-    private static let condition = NSCondition()
-    private nonisolated(unsafe) static var processes: [pid_t: ProcessInfo] = [:]
-    private nonisolated(unsafe) static var isShuttingDown = false
-    private nonisolated(unsafe) static var launchesInProgress = 0
+extension Data {
+    fileprivate mutating func appendRolling(contentsOf slice: ArraySlice<UInt8>, maxBytes: Int) {
+        guard maxBytes > 0 else {
+            self.removeAll(keepingCapacity: false)
+            return
+        }
+        if slice.count >= maxBytes {
+            self = Data(slice.suffix(maxBytes))
+            return
+        }
+        if self.count + slice.count > maxBytes {
+            self.removeFirst(self.count + slice.count - maxBytes)
+        }
+        self.append(contentsOf: slice)
+    }
+}
 
-    private struct ProcessInfo {
+private final class TTYCommandRunnerActiveProcessRegistryState: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var processes: [pid_t: ProcessInfo] = [:]
+    private var isShuttingDown = false
+    private var isSessionQuiesced = false
+    private var launchesInProgress = 0
+
+    private struct ProcessInfo: Sendable {
         let binary: String
         var processGroup: pid_t?
     }
 
     @discardableResult
-    static func register(pid: pid_t, binary: String) -> Bool {
+    func register(pid: pid_t, binary: String) -> Bool {
         guard pid > 0 else { return false }
         self.condition.lock()
         defer { self.condition.unlock() }
-        guard !self.isShuttingDown else { return false }
+        guard !self.isShuttingDown, !self.isSessionQuiesced else { return false }
         self.processes[pid] = ProcessInfo(binary: binary, processGroup: nil)
         return true
     }
 
-    static func beginLaunch() -> Bool {
+    func beginLaunch() -> Bool {
         self.condition.lock()
         defer { self.condition.unlock() }
-        guard !self.isShuttingDown else { return false }
+        guard !self.isShuttingDown, !self.isSessionQuiesced else { return false }
         self.launchesInProgress += 1
         return true
     }
 
-    static func endLaunch() {
+    func endLaunch() {
         self.condition.lock()
         self.launchesInProgress = max(0, self.launchesInProgress - 1)
         if self.launchesInProgress == 0 {
@@ -43,7 +61,7 @@ private enum TTYCommandRunnerActiveProcessRegistry {
         self.condition.unlock()
     }
 
-    static func updateProcessGroup(pid: pid_t, processGroup: pid_t?) {
+    func updateProcessGroup(pid: pid_t, processGroup: pid_t?) {
         guard pid > 0 else { return }
         self.condition.lock()
         guard var existing = self.processes[pid] else {
@@ -55,14 +73,14 @@ private enum TTYCommandRunnerActiveProcessRegistry {
         self.condition.unlock()
     }
 
-    static func unregister(pid: pid_t) {
+    func unregister(pid: pid_t) {
         guard pid > 0 else { return }
         self.condition.lock()
         self.processes.removeValue(forKey: pid)
         self.condition.unlock()
     }
 
-    static func drainForShutdown(
+    func drainForShutdown(
         onFenceSet: (() -> Void)? = nil)
         -> [(pid: pid_t, binary: String, processGroup: pid_t?)]
     {
@@ -80,27 +98,94 @@ private enum TTYCommandRunnerActiveProcessRegistry {
         return drained
     }
 
-    static func reset() {
+    func drainForSessionQuiesce() -> [(pid: pid_t, binary: String, processGroup: pid_t?)] {
+        self.condition.lock()
+        self.isSessionQuiesced = true
+        while self.launchesInProgress > 0 {
+            self.condition.wait()
+        }
+        let drained = self.processes.map {
+            (pid: $0.key, binary: $0.value.binary, processGroup: $0.value.processGroup)
+        }
+        self.processes.removeAll()
+        self.condition.unlock()
+        return drained
+    }
+
+    func resumeAfterSessionActivation() {
+        self.condition.lock()
+        guard !self.isShuttingDown else {
+            self.condition.unlock()
+            return
+        }
+        self.isSessionQuiesced = false
+        self.condition.broadcast()
+        self.condition.unlock()
+    }
+
+    func reset() {
         self.condition.lock()
         self.processes.removeAll()
         self.isShuttingDown = false
+        self.isSessionQuiesced = false
         self.launchesInProgress = 0
         self.condition.broadcast()
         self.condition.unlock()
     }
 
-    static func count() -> Int {
+    func count() -> Int {
         self.condition.lock()
         let count = self.processes.count
         self.condition.unlock()
         return count
     }
 
-    static func testTrackProcess(pid: pid_t, binary: String, processGroup: pid_t?) {
+    func testTrackProcess(pid: pid_t, binary: String, processGroup: pid_t?) {
         guard pid > 0 else { return }
         self.condition.lock()
         self.processes[pid] = ProcessInfo(binary: binary, processGroup: processGroup)
         self.condition.unlock()
+    }
+}
+
+private enum TTYCommandRunnerActiveProcessRegistry {
+    static let live = TTYCommandRunnerActiveProcessRegistryState()
+    static let test = TTYCommandRunnerActiveProcessRegistryState()
+
+    @discardableResult
+    static func register(pid: pid_t, binary: String) -> Bool {
+        self.live.register(pid: pid, binary: binary)
+    }
+
+    static func beginLaunch() -> Bool {
+        self.live.beginLaunch()
+    }
+
+    static func endLaunch() {
+        self.live.endLaunch()
+    }
+
+    static func updateProcessGroup(pid: pid_t, processGroup: pid_t?) {
+        self.live.updateProcessGroup(pid: pid, processGroup: processGroup)
+    }
+
+    static func unregister(pid: pid_t) {
+        self.live.unregister(pid: pid)
+    }
+
+    static func drainForShutdown(
+        onFenceSet: (() -> Void)? = nil)
+        -> [(pid: pid_t, binary: String, processGroup: pid_t?)]
+    {
+        self.live.drainForShutdown(onFenceSet: onFenceSet)
+    }
+
+    static func drainForSessionQuiesce() -> [(pid: pid_t, binary: String, processGroup: pid_t?)] {
+        self.live.drainForSessionQuiesce()
+    }
+
+    static func resumeAfterSessionActivation() {
+        self.live.resumeAfterSessionActivation()
     }
 }
 
@@ -164,6 +249,7 @@ enum TTYProcessTreeTerminator {
 /// Keeps it minimal so we can reuse for Codex and Claude without tmux.
 public struct TTYCommandRunner {
     private static let log = CodexBarLog.logger(LogCategories.ttyRunner)
+    private static let maxCapturedOutputBytes = 2 * 1024 * 1024
 
     public struct Result: Sendable {
         public let text: String
@@ -242,6 +328,21 @@ public struct TTYCommandRunner {
 
     public static func terminateActiveProcessesForAppShutdown() {
         let targets = TTYCommandRunnerActiveProcessRegistry.drainForShutdown()
+        self.terminateTrackedProcesses(targets)
+    }
+
+    public static func terminateActiveProcessesForSessionQuiesce() {
+        let targets = TTYCommandRunnerActiveProcessRegistry.drainForSessionQuiesce()
+        self.terminateTrackedProcesses(targets)
+    }
+
+    public static func resumeActiveProcessesAfterSessionActivation() {
+        TTYCommandRunnerActiveProcessRegistry.resumeAfterSessionActivation()
+    }
+
+    private static func terminateTrackedProcesses(
+        _ targets: [(pid: pid_t, binary: String, processGroup: pid_t?)])
+    {
         guard !targets.isEmpty else { return }
 
         let resolvedTargets = self.resolveShutdownTargets(
@@ -639,7 +740,7 @@ public struct TTYCommandRunner {
                 let n = read(primaryFD, &tmp, tmp.count)
                 if n > 0 {
                     let slice = tmp.prefix(n)
-                    buffer.append(contentsOf: slice)
+                    buffer.appendRolling(contentsOf: slice, maxBytes: Self.maxCapturedOutputBytes)
                     appended.append(contentsOf: slice)
                     continue
                 }
@@ -1086,11 +1187,11 @@ extension TTYCommandRunner {
     }
 
     static func _test_resetTrackedProcesses() {
-        TTYCommandRunnerActiveProcessRegistry.reset()
+        TTYCommandRunnerActiveProcessRegistry.test.reset()
     }
 
     static func _test_trackProcess(pid: pid_t, binary: String, processGroup: pid_t?) {
-        TTYCommandRunnerActiveProcessRegistry.testTrackProcess(
+        TTYCommandRunnerActiveProcessRegistry.test.testTrackProcess(
             pid: pid,
             binary: binary,
             processGroup: processGroup)
@@ -1098,26 +1199,36 @@ extension TTYCommandRunner {
 
     @discardableResult
     static func _test_registerTrackedProcess(pid: pid_t, binary: String) -> Bool {
-        TTYCommandRunnerActiveProcessRegistry.register(pid: pid, binary: binary)
+        TTYCommandRunnerActiveProcessRegistry.test.register(pid: pid, binary: binary)
     }
 
     static func _test_trackedProcessCount() -> Int {
-        TTYCommandRunnerActiveProcessRegistry.count()
+        TTYCommandRunnerActiveProcessRegistry.test.count()
     }
 
     static func _test_beginTrackedProcessLaunch() -> Bool {
-        TTYCommandRunnerActiveProcessRegistry.beginLaunch()
+        TTYCommandRunnerActiveProcessRegistry.test.beginLaunch()
     }
 
     static func _test_endTrackedProcessLaunch() {
-        TTYCommandRunnerActiveProcessRegistry.endLaunch()
+        TTYCommandRunnerActiveProcessRegistry.test.endLaunch()
     }
 
     static func _test_drainTrackedProcessesForShutdown(
         onFenceSet: (() -> Void)? = nil)
         -> [(pid: pid_t, binary: String, processGroup: pid_t?)]
     {
-        TTYCommandRunnerActiveProcessRegistry.drainForShutdown(onFenceSet: onFenceSet)
+        TTYCommandRunnerActiveProcessRegistry.test.drainForShutdown(onFenceSet: onFenceSet)
+    }
+
+    static func _test_drainTrackedProcessesForSessionQuiesce()
+        -> [(pid: pid_t, binary: String, processGroup: pid_t?)]
+    {
+        TTYCommandRunnerActiveProcessRegistry.test.drainForSessionQuiesce()
+    }
+
+    static func _test_resumeTrackedProcessesAfterSessionActivation() {
+        TTYCommandRunnerActiveProcessRegistry.test.resumeAfterSessionActivation()
     }
 
     static func _test_resolveShutdownTargets(
