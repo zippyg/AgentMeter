@@ -7,6 +7,7 @@ public struct CodexUsageResponse: Decodable, Sendable {
     public let planType: PlanType?
     public let rateLimit: RateLimitDetails?
     public let credits: CreditDetails?
+    public fileprivate(set) var resetCredits: CodexResetCredits?
     /// Model-specific limits (e.g. GPT-5.3-Codex-Spark) that sit alongside the primary/weekly windows.
     public let additionalRateLimits: [AdditionalRateLimit]?
 
@@ -14,6 +15,7 @@ public struct CodexUsageResponse: Decodable, Sendable {
         case planType = "plan_type"
         case rateLimit = "rate_limit"
         case credits
+        case resetCredits = "rate_limit_reset_credits"
         case additionalRateLimits = "additional_rate_limits"
     }
 
@@ -22,6 +24,7 @@ public struct CodexUsageResponse: Decodable, Sendable {
         self.planType = try? container.decodeIfPresent(PlanType.self, forKey: .planType)
         self.rateLimit = try? container.decodeIfPresent(RateLimitDetails.self, forKey: .rateLimit)
         self.credits = try? container.decodeIfPresent(CreditDetails.self, forKey: .credits)
+        self.resetCredits = try? container.decodeIfPresent(CodexResetCredits.self, forKey: .resetCredits)
         // Optional and additive: missing/malformed extra limits must never disturb primary/weekly mapping.
         // Decode per element so a single malformed entry cannot discard its valid siblings; a non-array
         // value (or absent field) leaves `additionalRateLimits` nil and primary/weekly mapping untouched.
@@ -272,7 +275,26 @@ public enum CodexOAuthUsageFetcher {
             switch response.statusCode {
             case 200...299:
                 do {
-                    return try JSONDecoder().decode(CodexUsageResponse.self, from: data)
+                    var usage = try JSONDecoder().decode(CodexUsageResponse.self, from: data)
+                    if let summary = usage.resetCredits, (summary.availableCount ?? 0) > 0,
+                       summary.credits == nil,
+                       request.url?.path == "/backend-api/wham/usage"
+                    {
+                        // Detail failures must not discard valid usage or the summary count.
+                        var detailsRequest = request
+                        detailsRequest.timeoutInterval = 5
+                        detailsRequest.url = request.url?.deletingLastPathComponent()
+                            .appendingPathComponent("rate-limit-reset-credits")
+                        if let details = try? await transport.response(for: detailsRequest),
+                           (200...299).contains(details.statusCode),
+                           let decoded = try? JSONDecoder().decode(CodexResetCredits.self, from: details.data)
+                        {
+                            usage.resetCredits = CodexResetCredits(
+                                availableCount: decoded.availableCount ?? summary.availableCount,
+                                credits: decoded.credits)
+                        }
+                    }
+                    return usage
                 } catch {
                     throw CodexOAuthFetchError.invalidResponse
                 }

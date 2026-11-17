@@ -1,3 +1,4 @@
+import CodexBarCore
 import Foundation
 
 extension SettingsStore {
@@ -51,6 +52,10 @@ extension SettingsStore {
                 .appendingPathComponent("archived_sessions", isDirectory: true)
         }()
 
+        if let overflow = CodexOverflowConfiguration.load(environment: env) {
+            if hasAnyJsonl(in: overflow.homeURL.appendingPathComponent("sessions")) { return true }
+            if hasAnyJsonl(in: overflow.homeURL.appendingPathComponent("archived_sessions")) { return true }
+        }
         if hasAnyJsonl(in: codexRoot) { return true }
         if let archivedCodexRoot, hasAnyJsonl(in: archivedCodexRoot) { return true }
 

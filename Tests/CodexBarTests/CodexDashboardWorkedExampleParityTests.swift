@@ -4,7 +4,7 @@ import Testing
 @testable import CodexBarCLI
 @testable import CodexBarCore
 
-@Suite(.serialized)
+@Suite(.serialized, OpenAIDashboardCacheIsolation())
 @MainActor
 struct CodexDashboardWorkedExampleParityTests {
     @Test

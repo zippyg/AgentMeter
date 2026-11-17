@@ -11,6 +11,7 @@ public struct SharedCostUsage: Codable, Sendable {
         public let name: String
         public let tokens: Int?
         public let costUSD: Double?
+        public var models: [Model]? = nil
     }
 
     public struct Day: Codable, Sendable {
@@ -40,7 +41,8 @@ public struct SharedCostUsage: Codable, Sendable {
                 Model(name: $0.modelName, tokens: $0.totalTokens, costUSD: $0.costUSD)
             }
             self.accounts = entry.accountBreakdowns.map { $0.map {
-                Model(name: $0.modelName, tokens: $0.totalTokens, costUSD: $0.costUSD)
+                Model(name: $0.modelName, tokens: $0.totalTokens, costUSD: $0.costUSD,
+                      models: $0.modelBreakdowns?.map { Model(name: $0.modelName, tokens: $0.totalTokens, costUSD: $0.costUSD) })
             } }
         }
 
@@ -52,7 +54,8 @@ public struct SharedCostUsage: Codable, Sendable {
                 modelsUsed: self.models.map(\.name), modelBreakdowns: self.models.map {
                     .init(modelName: $0.name, costUSD: $0.costUSD, totalTokens: $0.tokens)
                 }, accountBreakdowns: self.accounts?.map {
-                    .init(modelName: $0.name, costUSD: $0.costUSD, totalTokens: $0.tokens)
+                    .init(modelName: $0.name, costUSD: $0.costUSD, totalTokens: $0.tokens,
+                          modelBreakdowns: $0.models?.map { .init(modelName: $0.name, costUSD: $0.costUSD, totalTokens: $0.tokens) })
                 })
         }
     }

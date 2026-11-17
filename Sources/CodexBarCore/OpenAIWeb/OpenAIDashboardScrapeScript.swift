@@ -187,10 +187,10 @@ let openAIDashboardScrapeScript = """
         const lower = trimmed.toLowerCase();
         const exact = {
           pro: 'Pro 20x',
-          prolite: 'Pro 5x',
-          'pro_lite': 'Pro 5x',
-          'pro-lite': 'Pro 5x',
-          'pro lite': 'Pro 5x'
+          prolite: 'Pro 10x',
+          'pro_lite': 'Pro 10x',
+          'pro-lite': 'Pro 10x',
+          'pro lite': 'Pro 10x'
         };
         if (exact[lower]) return exact[lower];
         const cleaned = cleanPlanName(trimmed);

@@ -31,13 +31,15 @@ public struct CostUsageFetcher: Sendable {
     public func loadCachedCodexTokenSnapshot(
         now: Date = Date(),
         codexHomePath: String? = nil,
-        historyDays: Int = 30) async -> CostUsageTokenSnapshot?
+        historyDays: Int = 30,
+        codexHomePaths: [String] = []) async -> CostUsageTokenSnapshot?
     {
         await Self.loadCachedCodexTokenSnapshot(
             now: now,
             codexHomePath: codexHomePath,
             historyDays: historyDays,
-            scannerOptions: self.scannerOptionsOverride())
+            scannerOptions: self.scannerOptionsOverride(),
+            codexHomePaths: codexHomePaths)
     }
 
     public func loadTokenSnapshot(
@@ -126,6 +128,9 @@ public struct CostUsageFetcher: Sendable {
         }
 
         var options = overrideScannerOptions ?? CostUsageScanner.Options()
+        if overrideScannerOptions == nil {
+            options.codexOverflowConfigURL = CodexOverflowConfiguration.configurationURL(environment: environment)
+        }
         if provider == .claude, options.claudeProjectsRoots == nil {
             options.claudeProjectsRoots = CostUsageScanner.defaultClaudeProjectsRoots(
                 options: options, environment: environment)
@@ -213,7 +218,9 @@ public struct CostUsageFetcher: Sendable {
                     options: piOptions,
                     checkCancellation: checkCancellation)
                 try checkCancellation()
-                daily = CostUsageDailyReport.merged([daily, piReport])
+                daily = CostUsageDailyReport.merged([
+                    daily, provider == .codex ? Self.inCodexInputConvention(piReport) : piReport,
+                ])
             }
             return daily
         }
@@ -221,11 +228,33 @@ public struct CostUsageFetcher: Sendable {
         return Self.tokenSnapshot(from: daily, now: now, historyDays: clampedHistoryDays)
     }
 
+    /// Codex reports count cached input inside input; Pi reports it apart. A merged Codex day must use one
+    /// convention, or readers that take cached input out of Codex input subtract Pi's twice.
+    static func inCodexInputConvention(_ report: CostUsageDailyReport) -> CostUsageDailyReport {
+        CostUsageDailyReport(data: report.data.map { entry in
+            guard let read = entry.cacheReadTokens, read > 0 else { return entry }
+            return CostUsageDailyReport.Entry(
+                date: entry.date,
+                inputTokens: (entry.inputTokens ?? 0) + read,
+                outputTokens: entry.outputTokens,
+                cacheReadTokens: read,
+                cacheCreationTokens: entry.cacheCreationTokens,
+                totalTokens: entry.totalTokens ?? (entry.inputTokens ?? 0) + read
+                    + (entry.cacheCreationTokens ?? 0) + (entry.outputTokens ?? 0),
+                requestCount: entry.requestCount,
+                costUSD: entry.costUSD,
+                modelsUsed: entry.modelsUsed,
+                modelBreakdowns: entry.modelBreakdowns,
+                accountBreakdowns: entry.accountBreakdowns)
+        }, summary: nil)
+    }
+
     static func loadCachedCodexTokenSnapshot(
         now: Date = Date(),
         codexHomePath: String? = nil,
         historyDays: Int = 30,
-        scannerOptions overrideScannerOptions: CostUsageScanner.Options? = nil) async -> CostUsageTokenSnapshot?
+        scannerOptions overrideScannerOptions: CostUsageScanner.Options? = nil,
+        codexHomePaths: [String] = []) async -> CostUsageTokenSnapshot?
     {
         if let codexHomePath = codexHomePath?.trimmingCharacters(in: .whitespacesAndNewlines),
            !codexHomePath.isEmpty
@@ -240,7 +269,13 @@ public struct CostUsageFetcher: Sendable {
             let until = now
             let since = Calendar.current.date(byAdding: .day, value: -(clampedHistoryDays - 1), to: now) ?? now
             let range = CostUsageScanner.CostUsageDayRange(since: since, until: until)
-            let options = overrideScannerOptions ?? CostUsageScanner.Options()
+            var options = overrideScannerOptions ?? CostUsageScanner.Options()
+            if let firstHome = codexHomePaths.first {
+                options.codexSessionsRoot = URL(fileURLWithPath: firstHome).appendingPathComponent("sessions")
+                options.codexAdditionalSessionsRoots = codexHomePaths.dropFirst().map {
+                    URL(fileURLWithPath: $0).appendingPathComponent("sessions")
+                }
+            }
             let cache = CostUsageCacheIO.load(provider: .codex, cacheRoot: options.cacheRoot)
             var reports: [CostUsageDailyReport] = []
 
@@ -264,7 +299,7 @@ public struct CostUsageFetcher: Sendable {
                 now: now,
                 cacheRoot: options.cacheRoot)
             {
-                reports.append(piDaily)
+                reports.append(Self.inCodexInputConvention(piDaily))
             }
 
             guard !reports.isEmpty else { return nil }

@@ -115,7 +115,7 @@ struct CLISnapshotTests {
                 useColor: false,
                 resetStyle: .absolute))
 
-        #expect(output.contains("Plan: Pro 5x"))
+        #expect(output.contains("Plan: Pro 10x"))
         #expect(!output.contains("Plan: Pro Lite"))
         #expect(!output.contains("Plan: Prolite"))
     }

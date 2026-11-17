@@ -36,6 +36,12 @@ AgentMeter is a fork of [CodexBar](https://github.com/steipete/CodexBar) by Pete
   rate-limiting the usage check; retry 16:51", and a limit whose reset has passed reads 0.
 - A private usage file other tools can read: 30-day totals by user, subscription, model and token
   type. See [docs/usage-export.md](docs/usage-export.md).
+- A usage pool popover with Overview, Claude, Codex and Spend tabs: every Claude and Codex login
+  side by side, a pace gauge, runway forecasts and a seven-day timeline. See
+  [USAGE_POOL_UI.md](USAGE_POOL_UI.md) and [USAGE_POOL_FORECAST.md](USAGE_POOL_FORECAST.md).
+- Several Codex logins on one Mac, each with its own weekly usage, plan label and credit balance.
+- Banked reset credits for Claude and Codex, read-only, with a reminder before unused credits or a
+  weekly quota expire.
 
 ## Screenshots
 

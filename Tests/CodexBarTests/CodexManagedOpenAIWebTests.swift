@@ -3,7 +3,7 @@ import Testing
 @testable import AgentMeter
 @testable import CodexBarCore
 
-@Suite(.serialized)
+@Suite(.serialized, OpenAIDashboardCacheIsolation())
 @MainActor
 struct CodexManagedOpenAIWebTests {
     @Test

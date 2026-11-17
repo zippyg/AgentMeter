@@ -26,13 +26,19 @@ struct CodexAccountUsageSnapshot: Identifiable {
     let snapshot: UsageSnapshot?
     let error: String?
     let sourceLabel: String?
+    let credits: CreditsSnapshot?
 
-    init(account: CodexVisibleAccount, snapshot: UsageSnapshot?, error: String?, sourceLabel: String?) {
+    let weeklyHistory: [PlanUtilizationHistoryEntry]
+
+    init(account: CodexVisibleAccount, snapshot: UsageSnapshot?, error: String?, sourceLabel: String?, credits: CreditsSnapshot? = nil,
+         weeklyHistory: [PlanUtilizationHistoryEntry] = []) {
         self.id = account.id
         self.account = account
         self.snapshot = snapshot
         self.error = error
         self.sourceLabel = sourceLabel
+        self.credits = credits
+        self.weeklyHistory = weeklyHistory
     }
 }
 
@@ -114,8 +120,21 @@ extension UsageStore {
 
     func shouldFetchAllCodexVisibleAccounts() -> Bool {
         let projection = self.freshCodexVisibleAccountProjectionForAccountRefresh()
-        return self.settings.multiAccountMenuLayout == .stacked &&
-            projection.visibleAccounts.count > 1
+        return projection.visibleAccounts.count > 1
+    }
+
+    func usagePoolCodexSnapshots() -> [CodexAccountUsageSnapshot] {
+        let projection = CodexVisibleAccountProjection.make(from: self.settings.codexAccountReconciliationSnapshot)
+        return projection.visibleAccounts.map { account in
+            let cached = self.codexAccountSnapshots.first {
+                Self.codexVisibleAccountMatchesCurrentProjection($0.account, account: account)
+            }
+            return CodexAccountUsageSnapshot(
+                account: account, snapshot: cached?.snapshot,
+                error: cached?.error, sourceLabel: cached?.sourceLabel, credits: cached?.credits,
+                weeklyHistory: self.codexPlanUtilizationHistories(forVisibleAccount: account)
+                    .first { $0.name == .weekly && $0.windowMinutes == 10080 }?.entries ?? [])
+        }
     }
 
     func refreshCodexVisibleAccountsForMenu(generation: UInt64? = nil) async {
@@ -190,7 +209,8 @@ extension UsageStore {
                     snapshot.snapshot,
                     account: currentAccount),
                 error: snapshot.error,
-                sourceLabel: snapshot.sourceLabel)
+                sourceLabel: snapshot.sourceLabel,
+                credits: snapshot.credits)
         }
         let shouldPreservePriorState = !sawAnyNonCancellationOutcome &&
             currentSnapshots.allSatisfy { $0.snapshot == nil }
@@ -639,7 +659,8 @@ extension UsageStore {
                 let context = self.makeFetchContext(
                     provider: .codex,
                     override: nil,
-                    codexActiveSourceOverride: account.selectionSource)
+                    codexActiveSourceOverride: account.selectionSource,
+                    includeCredits: true)
                 return (index, account, descriptor, context)
             }
 
@@ -670,7 +691,8 @@ extension UsageStore {
         provider: UsageProvider,
         override: TokenAccountOverride?,
         codexActiveSourceOverride: CodexActiveSource? = nil,
-        includeCredits: Bool = false) -> ProviderFetchContext
+        includeCredits: Bool = false,
+        managedCodexHomesRoot: URL = ManagedCodexHomeFactory.defaultRootURL()) -> ProviderFetchContext
     {
         let account = ProviderTokenAccountSelection.selectedAccount(
             provider: provider,
@@ -692,6 +714,19 @@ extension UsageStore {
         let contextProvider = provider
         let originalAccountToken = account?.token
         let originalManualToken = provider == .stepfun ? self.settings.stepfunToken : nil
+        let codexSource = provider == .codex
+            ? codexActiveSourceOverride ?? self.settings.codexResolvedActiveSource : .liveSystem
+        let codexPoolFetch = provider == .codex && (codexActiveSourceOverride != nil
+            || self.settings.codexVisibleAccountProjection.visibleAccounts.count > 1)
+        let codexHome = CodexHomeScope.ambientHomeURL(env: env).resolvingSymlinksInPath().standardizedFileURL
+        let managedRoot = managedCodexHomesRoot.resolvingSymlinksInPath().standardizedFileURL
+        let systemHome = CodexHomeScope.ambientHomeURL(env: [:]).resolvingSymlinksInPath().standardizedFileURL
+        let ambientHome = CodexHomeScope.ambientHomeURL(env: self.environmentBase)
+            .resolvingSymlinksInPath().standardizedFileURL
+        let isSafeManagedHome = codexHome.path.hasPrefix(managedRoot.path + "/")
+            && codexHome.path != systemHome.path && codexHome.path != ambientHome.path
+        let codexReadOnly = provider == .codex
+            && (codexSource == .liveSystem ? codexPoolFetch : !isSafeManagedHome)
         return ProviderFetchContext(
             runtime: .app,
             sourceMode: sourceMode,
@@ -731,7 +766,9 @@ extension UsageStore {
             costUsageHistoryDays: self.settings.costUsageHistoryDays,
             persistsCLISessions: true,
             persistentCLISessionIdleWindow: ProviderRegistry.persistentCLISessionIdleWindow(
-                refreshInterval: self.settings.refreshFrequency.seconds))
+                refreshInterval: self.settings.refreshFrequency.seconds),
+            codexReadOnly: codexReadOnly,
+            codexAllowsCLIFallback: !codexPoolFetch && !codexReadOnly)
     }
 
     func sourceMode(for provider: UsageProvider) -> ProviderSourceMode {
@@ -1001,6 +1038,7 @@ extension UsageStore {
             secondary: secondary,
             tertiary: snapshot.tertiary,
             extraRateWindows: snapshot.extraRateWindows,
+            codexResetCredits: snapshot.codexResetCredits,
             kiroUsage: snapshot.kiroUsage,
             ampUsage: snapshot.ampUsage,
             providerCost: snapshot.providerCost,
@@ -1174,7 +1212,8 @@ extension UsageStore {
                 account: account,
                 snapshot: backfilled,
                 error: nil,
-                sourceLabel: result.sourceLabel)
+                sourceLabel: result.sourceLabel,
+                credits: result.credits)
             return ResolvedCodexAccountOutcome(
                 snapshot: snapshot,
                 usage: backfilled,
@@ -1198,7 +1237,8 @@ extension UsageStore {
                     account: account,
                     snapshot: priorUsage,
                     error: errorMessage,
-                    sourceLabel: priorSnapshot.sourceLabel)
+                    sourceLabel: priorSnapshot.sourceLabel,
+                    credits: priorSnapshot.credits)
                 return ResolvedCodexAccountOutcome(
                     snapshot: snapshot,
                     usage: priorUsage,
@@ -1241,6 +1281,9 @@ extension UsageStore {
         switch outcome.result {
         case .success:
             guard let snapshot else { return }
+            self.handleCodexQuotaReminders(
+                snapshot: snapshot,
+                owner: self.codexOwnershipContext(forVisibleAccount: account).canonicalKey)
             self.handleSessionQuotaTransition(provider: .codex, snapshot: snapshot)
             self.lastKnownResetSnapshots[.codex] = snapshot
             self.lastCodexAccountScopedRefreshGuard = Self.codexScopedRefreshGuard(for: account)

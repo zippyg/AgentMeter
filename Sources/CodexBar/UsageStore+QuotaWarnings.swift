@@ -70,10 +70,14 @@ extension UsageStore {
             self.quotaWarningState.removeValue(forKey: key)
             return
         }
+        let isClaudeSessionLane = provider == .claude && window == .session
         guard let rateWindow else {
-            self.quotaWarningState.removeValue(forKey: key)
+            if !isClaudeSessionLane {
+                self.quotaWarningState.removeValue(forKey: key)
+            }
             return
         }
+        guard !isClaudeSessionLane || rateWindow.windowMinutes == 5 * 60 else { return }
 
         let thresholds = self.settings.resolvedQuotaWarningThresholds(provider: provider, window: window)
         let currentRemaining = rateWindow.remainingPercent

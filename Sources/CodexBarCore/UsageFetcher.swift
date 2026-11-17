@@ -122,6 +122,7 @@ public struct UsageSnapshot: Codable, Sendable {
     public let secondary: RateWindow?
     public let tertiary: RateWindow?
     public let extraRateWindows: [NamedRateWindow]?
+    public let codexResetCredits: CodexResetCredits?
     public let providerCost: ProviderCostSnapshot?
     public let kiroUsage: KiroUsageDetails?
     public let ampUsage: AmpUsageDetails?
@@ -145,6 +146,7 @@ public struct UsageSnapshot: Codable, Sendable {
         case secondary
         case tertiary
         case extraRateWindows
+        case codexResetCredits
         case providerCost
         case kiroUsage
         case ampUsage
@@ -168,6 +170,7 @@ public struct UsageSnapshot: Codable, Sendable {
         secondary: RateWindow?,
         tertiary: RateWindow? = nil,
         extraRateWindows: [NamedRateWindow]? = nil,
+        codexResetCredits: CodexResetCredits? = nil,
         kiroUsage: KiroUsageDetails? = nil,
         ampUsage: AmpUsageDetails? = nil,
         providerCost: ProviderCostSnapshot? = nil,
@@ -190,6 +193,7 @@ public struct UsageSnapshot: Codable, Sendable {
         self.secondary = secondary
         self.tertiary = tertiary
         self.extraRateWindows = extraRateWindows
+        self.codexResetCredits = codexResetCredits
         self.kiroUsage = kiroUsage
         self.ampUsage = ampUsage
         self.providerCost = providerCost
@@ -215,6 +219,7 @@ public struct UsageSnapshot: Codable, Sendable {
             secondary: self.secondary,
             tertiary: self.tertiary,
             extraRateWindows: extraRateWindows,
+            codexResetCredits: self.codexResetCredits,
             kiroUsage: self.kiroUsage,
             ampUsage: self.ampUsage,
             providerCost: self.providerCost,
@@ -240,6 +245,7 @@ public struct UsageSnapshot: Codable, Sendable {
         self.secondary = try container.decodeIfPresent(RateWindow.self, forKey: .secondary)
         self.tertiary = try container.decodeIfPresent(RateWindow.self, forKey: .tertiary)
         self.extraRateWindows = try container.decodeIfPresent([NamedRateWindow].self, forKey: .extraRateWindows)
+        self.codexResetCredits = try container.decodeIfPresent(CodexResetCredits.self, forKey: .codexResetCredits)
         self.providerCost = try container.decodeIfPresent(ProviderCostSnapshot.self, forKey: .providerCost)
         self.kiroUsage = try container.decodeIfPresent(KiroUsageDetails.self, forKey: .kiroUsage)
         self.ampUsage = try container.decodeIfPresent(AmpUsageDetails.self, forKey: .ampUsage)
@@ -283,6 +289,7 @@ public struct UsageSnapshot: Codable, Sendable {
         try container.encode(self.secondary, forKey: .secondary)
         try container.encode(self.tertiary, forKey: .tertiary)
         try container.encodeIfPresent(self.extraRateWindows, forKey: .extraRateWindows)
+        try container.encodeIfPresent(self.codexResetCredits, forKey: .codexResetCredits)
         try container.encodeIfPresent(self.providerCost, forKey: .providerCost)
         try container.encodeIfPresent(self.kiroUsage, forKey: .kiroUsage)
         try container.encodeIfPresent(self.ampUsage, forKey: .ampUsage)
@@ -386,6 +393,7 @@ public struct UsageSnapshot: Codable, Sendable {
             secondary: self.secondary,
             tertiary: self.tertiary,
             extraRateWindows: self.extraRateWindows,
+            codexResetCredits: self.codexResetCredits,
             kiroUsage: self.kiroUsage,
             ampUsage: self.ampUsage,
             providerCost: self.providerCost,
@@ -426,6 +434,7 @@ public struct UsageSnapshot: Codable, Sendable {
             secondary: secondary,
             tertiary: tertiary,
             extraRateWindows: self.extraRateWindows,
+            codexResetCredits: self.codexResetCredits,
             kiroUsage: self.kiroUsage,
             ampUsage: self.ampUsage,
             providerCost: self.providerCost,

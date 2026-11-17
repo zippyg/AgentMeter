@@ -107,6 +107,11 @@ if [[ "${group_id}" == *com.steipete.codexbar* ]]; then
   fail "AgentMeterAppGroupIdentifier must not point at upstream CodexBar group"
 fi
 
+signature_info="$(/usr/bin/codesign -dv --verbose=2 "${MACOS}/AgentMeter" 2>&1 || true)"
+if [[ "${signature_info}" == *"Signature=adhoc"* && "${signature_info}" =~ flags=[^[:space:]]*runtime ]]; then
+  fail "Ad-hoc local app must not enable hardened runtime: Sparkle has no matching TeamIdentifier"
+fi
+
 if [[ "${AGENTMETER_SKIP_CODESIGN_VERIFY:-0}" != "1" ]]; then
   if ! codesign_output="$(/usr/bin/codesign --verify --deep --strict --verbose=2 "${APP_PATH}" 2>&1)"; then
     echo "${codesign_output}" >&2

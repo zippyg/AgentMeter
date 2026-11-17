@@ -40,7 +40,7 @@ struct TTYIntegrationTests {
         var shouldAssert = true
         do {
             let snapshot = try await fetcher.loadLatestUsage()
-            #expect(snapshot.primary.remainingPercent >= 0)
+            #expect((snapshot.primary?.remainingPercent ?? 0) >= 0)
             // Weekly is absent for some enterprise accounts.
         } catch ClaudeUsageError.parseFailed(_) {
             shouldAssert = false

@@ -3,6 +3,43 @@ import Testing
 @testable import CodexBarCore
 
 struct CostUsageScannerTests {
+    @Test func resumedRolloutsPreserveTodayAcrossScanWindows() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let today = try env.makeLocalNoon(year: 2026, month: 11, day: 11)
+        let older = try env.makeLocalNoon(year: 2026, month: 10, day: 22)
+        func contents(_ day: Date, total: Int, last: Int) throws -> String {
+            try env.jsonl([
+                ["type": "session_meta", "payload": ["id": "invented-resumed-session", "timestamp": env.isoString(for: day)]],
+                ["type": "turn_context", "payload": ["model": "gpt-5"]],
+                ["type": "event_msg", "timestamp": env.isoString(for: day), "payload": [
+                    "type": "token_count", "info": [
+                        "total_token_usage": ["input_tokens": total, "output_tokens": 0],
+                        "last_token_usage": ["input_tokens": last, "output_tokens": 0],
+                    ],
+                ]],
+            ])
+        }
+        let oldFile = try env.writeCodexSessionFile(day: older, filename: "old.jsonl",
+            contents: contents(older, total: 100, last: 100))
+        try FileManager.default.setAttributes([.modificationDate: older], ofItemAtPath: oldFile.path)
+        let resumed = try env.writeCodexSessionFile(day: today, filename: "resumed.jsonl",
+            contents: contents(today, total: 150, last: 50))
+        let other = env.root.appendingPathComponent("other/sessions")
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: resumed, to: other.appendingPathComponent("copy.jsonl"))
+        var options = CostUsageScanner.Options(codexSessionsRoot: env.codexSessionsRoot, cacheRoot: env.cacheRoot)
+        options.codexAdditionalSessionsRoots = [other]
+        options.refreshMinIntervalSeconds = 0
+        let since = Calendar.current.date(byAdding: .day, value: -29, to: today)!
+        for days in [30, 1, 30, 30] {
+            let report = CostUsageScanner.loadDailyReport(provider: .codex,
+                since: days == 1 ? today : since, until: today, now: today, options: options)
+            #expect(report.data.first { $0.date == "2026-11-11" }?.totalTokens == 50)
+            if days == 30 { #expect(report.summary?.totalTokens == 150) }
+        }
+    }
+
     @Test
     func `codex file metadata detects append truncation and replacement`() throws {
         let root = FileManager.default.temporaryDirectory
@@ -373,6 +410,150 @@ struct CostUsageScannerTests {
             now: day,
             options: options)
         #expect(secondReport.data.first?.totalTokens == 430)
+    }
+
+    /// Codex compresses logs older than about a week to .jsonl.zst. They must count, once, even when an
+    /// uncompressed copy of the same session is still around.
+    @Test(.enabled(if: CostUsageLogFile.systemZstdPath != nil, "needs the system zstd binary"))
+    func `codex daily report reads compressed session logs once`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/codex-session-2026-10-15.jsonl.zst")
+        let day = try env.makeLocalNoon(year: 2026, month: 10, day: 15)
+        let compressed = try env.writeCodexSessionFile(
+            day: day, filename: "rollout-2026-10-15T12-00-00-invented-zst-session-0001.jsonl.zst", contents: "")
+        try FileManager.default.removeItem(at: compressed)
+        try FileManager.default.copyItem(at: fixture, to: compressed)
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot, claudeProjectsRoots: nil, cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+        let report = CostUsageScanner.loadDailyReport(provider: .codex, since: day, until: day, now: day, options: options)
+        // Cumulative totals end at 160 input (40 cached) and 16 output.
+        #expect(report.data.map(\.totalTokens) == [176])
+        #expect(report.data.first?.modelsUsed == ["gpt-5.5"])
+
+        let plain = Process()
+        plain.executableURL = URL(fileURLWithPath: try #require(CostUsageLogFile.systemZstdPath))
+        plain.arguments = ["-dcq", "--", fixture.path]
+        let pipe = Pipe()
+        plain.standardOutput = pipe
+        try plain.run()
+        let bytes = pipe.fileHandleForReading.readDataToEndOfFile()
+        plain.waitUntilExit()
+        _ = try env.writeCodexArchivedSessionFile(
+            filename: "rollout-2026-10-15T12-00-00-invented-zst-session-0001.jsonl",
+            contents: String(decoding: bytes, as: UTF8.self))
+        let deduped = CostUsageScanner.loadDailyReport(provider: .codex, since: day, until: day, now: day, options: options)
+        #expect(deduped.data.map(\.totalTokens) == [176])
+    }
+
+    private static func zstd(_ input: Data, arguments: [String] = ["-q", "-c"]) throws -> Data {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try #require(CostUsageLogFile.systemZstdPath))
+        process.arguments = arguments
+        let stdin = Pipe(), stdout = Pipe()
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        try process.run()
+        try stdin.fileHandleForWriting.write(contentsOf: input)
+        try stdin.fileHandleForWriting.close()
+        let output = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return output
+    }
+
+    private static func codexTokenLines(_ totals: [Int], session: String) throws -> [String] {
+        let meta = #"{"type":"session_meta","timestamp":"2026-10-15T12:00:00Z","payload":{"id":"\#(session)"}}"#
+        let turn = #"{"type":"turn_context","timestamp":"2026-10-15T12:00:01Z","payload":{"model":"gpt-5.5"}}"#
+        return [meta, turn] + totals.enumerated().map { index, total in
+            #"{"type":"event_msg","timestamp":"2026-10-15T12:00:\#(String(format: "%02d", index + 2))Z","payload":"#
+                + #"{"type":"token_count","info":{"total_token_usage":{"input_tokens":\#(total),"#
+                + #""cached_input_tokens":0,"output_tokens":0},"model":"gpt-5.5"}}}"#
+        }
+    }
+
+    /// A compressed log whose second frame is cut short decompresses 100 tokens and then fails. That
+    /// partial result must not be cached or claim its session, so the healthy 300-token copy counts.
+    @Test(.enabled(if: CostUsageLogFile.systemZstdPath != nil, "needs the system zstd binary"))
+    func `codex truncated compressed log is not cached and does not hide a healthy copy`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 10, day: 15)
+        let lines = try Self.codexTokenLines([100, 300], session: "invented-truncated-session")
+        let first = try Self.zstd(Data((lines[0...2].joined(separator: "\n") + "\n").utf8))
+        let second = try Self.zstd(Data((lines[3] + "\n").utf8))
+        let compressed = try env.writeCodexSessionFile(
+            day: day, filename: "rollout-2026-10-15T12-00-00-invented-truncated-session.jsonl.zst", contents: "")
+        try (first + second.prefix(second.count / 2)).write(to: compressed)
+        // The healthy copy sits in a later day folder, so the compressed log is scanned first.
+        let nextDay = day.addingTimeInterval(86400)
+        _ = try env.writeCodexSessionFile(
+            day: nextDay, filename: "rollout-2026-10-16T12-00-00-invented-truncated-session.jsonl",
+            contents: lines.joined(separator: "\n") + "\n")
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot, claudeProjectsRoots: nil, cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+        for _ in 0..<2 {
+            let report = CostUsageScanner.loadDailyReport(
+                provider: .codex, since: day, until: nextDay, now: nextDay, options: options)
+            #expect(report.data.map(\.totalTokens) == [300])
+            let cache = CostUsageCacheIO.load(provider: .codex, cacheRoot: env.cacheRoot)
+            #expect(cache.files[compressed.path] == nil)
+        }
+    }
+
+    /// Without a working zstd, compressed logs are skipped (missing) or fail to launch (broken path);
+    /// either way nothing from them is cached and plain logs still count.
+    @Test(.enabled(if: CostUsageLogFile.systemZstdPath != nil, "needs the system zstd binary"))
+    func `codex compressed logs are skipped without a working zstd`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 10, day: 15)
+        let compressed = try env.writeCodexSessionFile(
+            day: day, filename: "rollout-2026-10-15T12-00-00-invented-zst-only.jsonl.zst", contents: "")
+        let zstLines = try Self.codexTokenLines([500], session: "invented-zst-only")
+        try Self.zstd(Data((zstLines.joined(separator: "\n") + "\n").utf8)).write(to: compressed)
+        _ = try env.writeCodexSessionFile(
+            day: day, filename: "rollout-2026-10-15T12-00-00-invented-plain.jsonl",
+            contents: try Self.codexTokenLines([40], session: "invented-plain").joined(separator: "\n") + "\n")
+
+        for path in [nil, "/nonexistent/invented/zstd"] as [String?] {
+            try? FileManager.default.removeItem(at: env.cacheRoot)
+            var options = CostUsageScanner.Options(
+                codexSessionsRoot: env.codexSessionsRoot, claudeProjectsRoots: nil, cacheRoot: env.cacheRoot)
+            options.refreshMinIntervalSeconds = 0
+            let report = CostUsageLogFile.$zstdPath.withValue(path) {
+                CostUsageScanner.loadDailyReport(provider: .codex, since: day, until: day, now: day, options: options)
+            }
+            #expect(report.data.map(\.totalTokens) == [40], "zstd path \(path ?? "missing")")
+            #expect(CostUsageCacheIO.load(provider: .codex, cacheRoot: env.cacheRoot).files[compressed.path] == nil)
+        }
+    }
+
+    @Test(.enabled(if: CostUsageLogFile.systemZstdPath != nil, "needs the system zstd binary"))
+    func `cancelling mid decompression stops the read`() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codexbar-zst-cancel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("session.jsonl.zst")
+        let line = #"{"type":"event_msg","payload":{"type":"noise"}}"# + "\n"
+        try Self.zstd(Data(String(repeating: line, count: 40000).utf8)).write(to: url)
+        var checks = 0
+        var lines = 0
+        #expect(throws: CancellationError.self) {
+            try CostUsageJsonl.scan(
+                fileURL: url, maxLineBytes: 1024, prefixBytes: 1024,
+                checkCancellation: {
+                    checks += 1
+                    if checks > 2 { throw CancellationError() }
+                },
+                onLine: { _ in lines += 1 })
+        }
+        #expect(lines > 0 && lines < 40000)
     }
 
     @Test
@@ -872,10 +1053,9 @@ struct CostUsageTestEnvironment {
     let claudeProjectsRoot: URL
     let piSessionsRoot: URL
 
-    init() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "codexbar-cost-usage-\(UUID().uuidString)",
-            isDirectory: true)
+    init(root: URL = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "codexbar-cost-usage-\(UUID().uuidString)", isDirectory: true)) throws
+    {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         self.root = root
         self.cacheRoot = root.appendingPathComponent("cache", isDirectory: true)

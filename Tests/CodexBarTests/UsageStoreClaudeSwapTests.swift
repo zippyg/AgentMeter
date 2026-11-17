@@ -164,6 +164,26 @@ struct UsageStoreClaudeSwapTests {
         await store.widgetSnapshotPersistTask?.value
     }
 
+    @Test func grantsRunAfterAccountsPublishWithoutDelayingMainRefresh() async throws {
+        let store = try self.makeStore()
+        let accounts = try ClaudeSwapUsage.parse(Data(#"""
+        {"schemaVersion":1,"activeAccountNumber":1,"accounts":[
+          {"number":1,"usageStatus":"ok","usage":{"fiveHour":{"pct":15},"sevenDay":{"pct":20}}}]}
+        """#.utf8))
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        store._test_claudeSwapFetch = { accounts }
+        store._test_claudeGrantRefresh = { for await _ in stream {} }
+        #expect(await store.refreshClaudeSwapAccounts(generation: nil))
+        #expect(store.claudeSwapAccounts?.count == 1)
+        #expect(store.snapshot(for: .claude)?.primary?.usedPercent == 15)
+        let background = try #require(store.claudeGrantRefreshTask)
+        #expect(await store.refreshClaudeSwapAccounts(generation: nil))
+        continuation.finish()
+        await background.value
+        #expect(store.claudeGrantRefreshTask == nil)
+        await store.widgetSnapshotPersistTask?.value
+    }
+
     private func makeStore() throws -> UsageStore {
         let suite = "UsageStoreClaudeSwapTests-\(UUID().uuidString)"
         // Without its own directory this uses the real Application Support store, so samples

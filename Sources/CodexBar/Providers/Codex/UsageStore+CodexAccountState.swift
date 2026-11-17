@@ -83,7 +83,7 @@ extension UsageStore {
         self.lastSourceLabels.removeValue(forKey: .codex)
         self.lastFetchAttempts.removeValue(forKey: .codex)
         self.accountSnapshots.removeValue(forKey: .codex)
-        self.codexAccountSnapshots = []
+        // These readings belong to individual identities and survive active-account selection changes.
         self.failureGates[.codex]?.reset()
         self.lastKnownSessionRemaining.removeValue(forKey: .codex)
         self.lastKnownSessionWindowSource.removeValue(forKey: .codex)

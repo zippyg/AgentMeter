@@ -429,6 +429,8 @@ extension SettingsStore {
             debugKeepCLISessionsAlive: debugKeepCLISessionsAlive,
             statusChecksEnabled: statusChecksEnabled,
             agentMeterBridgeEnabled: agentMeterBridgeEnabled,
+            upcomingResetNotificationsEnabled: userDefaults.bool(forKey: "upcomingResetNotificationsEnabled"),
+            codexResetCreditExpiryCountdownEnabled: userDefaults.bool(forKey: "codexResetCreditExpiryCountdownEnabled"),
             sessionQuotaNotificationsEnabled: sessionQuotaNotificationsEnabled,
             quotaWarningNotificationsEnabled: quotaWarnings.notificationsEnabled,
             quotaWarningThresholdsRaw: quotaWarnings.thresholdsRaw,

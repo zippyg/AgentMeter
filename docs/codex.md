@@ -116,7 +116,9 @@ Usage source picker:
   - Native Codex logs:
     - `~/.codex/sessions/YYYY/MM/DD/*.jsonl`
     - `~/.codex/archived_sessions/*.jsonl` (flat; date inferred from filename when present)
-    - Or `$CODEX_HOME/sessions/...` + `$CODEX_HOME/archived_sessions/...` if `CODEX_HOME` is set.
+    - The app also scans `$CODEX_HOME` when set, every managed home and the configured overflow home, including `sessions` and `archived_sessions`.
+    - Both app cost views use the same roots, independent of the selected login, and count each session ID once.
+    - The CLI uses `$CODEX_HOME` (or `~/.codex`) plus the configured overflow home.
   - Supported pi sessions:
     - `~/.pi/agent/sessions/**/*.jsonl`
 - Scanner:

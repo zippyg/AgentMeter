@@ -13,8 +13,16 @@ enum LaunchAtLoginManager {
         return NSClassFromString("XCTestCase") != nil
     }()
 
+    /// Only installed apps may register, preventing build and QA copies from creating duplicate login items.
+    static func mayRegister(bundlePath: String, environment: [String: String]) -> Bool {
+        guard environment["AGENTMETER_QA_ALLOW"] == nil else { return false }
+        return bundlePath.hasSuffix(".app") && bundlePath.hasPrefix("/Applications/")
+    }
+
     static func setEnabled(_ enabled: Bool) {
         if self.isRunningTests { return }
+        if enabled, !self.mayRegister(bundlePath: Bundle.main.bundlePath,
+                                       environment: ProcessInfo.processInfo.environment) { return }
         let service = SMAppService.mainApp
         self.setEnabled(
             enabled,

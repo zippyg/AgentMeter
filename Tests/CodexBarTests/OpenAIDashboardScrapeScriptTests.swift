@@ -21,7 +21,7 @@ struct OpenAIDashboardScrapeScriptTests {
         #expect(dict["bodyHTML"] == nil)
         #expect(dict["signedInEmail"] as? String == "user@example.com")
         #expect(dict["authStatus"] as? String == "logged_in")
-        #expect(dict["accountPlan"] as? String == "Pro 5x")
+        #expect(dict["accountPlan"] as? String == "Pro 10x")
     }
 
     @Test

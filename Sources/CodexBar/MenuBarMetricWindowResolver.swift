@@ -132,6 +132,10 @@ enum MenuBarMetricWindowResolver {
         {
             return extraUsage
         }
+        if provider == .claude {
+            return snapshot.primary ?? snapshot.secondary ?? snapshot.tertiary
+                ?? snapshot.extraRateWindows?.first { $0.usageKnown && ($0.id.hasPrefix("claude-") && $0.id != "claude-routines") }?.window
+        }
         return snapshot.primary ?? snapshot.secondary
     }
 
@@ -205,7 +209,10 @@ enum MenuBarMetricWindowResolver {
     {
         guard providerCost?.limit ?? 0 > 0,
               snapshot.secondary == nil,
-              snapshot.tertiary == nil
+              snapshot.tertiary == nil,
+              snapshot.extraRateWindows?.contains(where: {
+                  $0.usageKnown && ($0.id.hasPrefix("claude-") && $0.id != "claude-routines")
+              }) != true
         else { return false }
         guard let primary = snapshot.primary else { return true }
         return primary.usedPercent == 0

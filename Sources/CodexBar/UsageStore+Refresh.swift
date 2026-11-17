@@ -302,6 +302,10 @@ extension UsageStore {
                     ? self.codexLastKnownResetSnapshot(matching: context.codexExpectedGuard)
                     : self.lastKnownResetSnapshots[provider]
                 let backfilled = scoped.backfillingResetTimes(from: resetBackfillSource)
+                if provider == .codex {
+                    let owner = context.codexExpectedGuard.flatMap { CodexHistoryOwnership.canonicalKey(for: $0.identity) }
+                    self.handleCodexQuotaReminders(snapshot: backfilled, owner: owner)
+                }
                 self.handleQuotaWarningTransitions(provider: provider, snapshot: backfilled)
                 self.handleRateLimitSound(provider: provider, snapshot: backfilled)
                 self.handleSessionQuotaTransition(provider: provider, snapshot: backfilled)
@@ -380,6 +384,7 @@ extension UsageStore {
             self.accountSnapshots.removeValue(forKey: provider)
             if provider == .claude {
                 self.claudeSwapAccounts = nil
+                self.usagePoolClaudeAccounts = []
             }
             if provider == .codex {
                 self.codexAccountSnapshots = []

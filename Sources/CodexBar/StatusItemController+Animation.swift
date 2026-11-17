@@ -263,6 +263,7 @@ extension StatusItemController {
         bypassMergedMenuTrackingDeferral: Bool = false) -> Bool
     {
         guard let button = self.statusItem.button else { return false }
+        defer { self.applyUsagePoolMenuBarTooltip(to: button) }
         if !bypassMergedMenuTrackingDeferral,
            self.deferMergedIconRenderDuringMenuTrackingIfNeeded() { return true }
 
@@ -508,6 +509,7 @@ extension StatusItemController {
         else {
             return false
         }
+        defer { self.applyUsagePoolMenuBarTooltip(to: button) }
         let snapshot = self.store.snapshot(for: provider)
         // IconRenderer treats these values as a left-to-right "progress fill" percentage; depending on the
         // user setting we pass either "percent left" or "percent used".

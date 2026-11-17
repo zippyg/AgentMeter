@@ -3,7 +3,7 @@ import Testing
 @testable import CodexBarCLI
 @testable import CodexBarCore
 
-@Suite(.serialized)
+@Suite(.serialized, OpenAIDashboardCacheIsolation())
 struct CLIOpenAIDashboardCacheTests {
     @Test
     func `cached dashboard restores when authority allows cached reuse`() throws {

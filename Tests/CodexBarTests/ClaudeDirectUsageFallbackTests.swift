@@ -38,7 +38,7 @@ struct ClaudeDirectUsageFallbackTests {
             try await ClaudeCLIResolver.withResolvedBinaryPathOverrideForTesting(fakeCLI.path) {
                 let snapshot = try await fetcher.loadLatestUsage(model: "sonnet")
                 #expect(snapshot.primaryWindowKind == .spendLimit)
-                #expect(snapshot.primary.usedPercent == 0)
+                #expect(snapshot.primary?.usedPercent == 0)
                 #expect(snapshot.secondary == nil)
                 #expect(snapshot.opus == nil)
                 #expect(snapshot.loginMethod == "Claude subscription")
@@ -128,7 +128,7 @@ struct ClaudeDirectUsageFallbackTests {
         try await ClaudeCLISession.withIsolatedSessionForTesting {
             try await ClaudeCLIResolver.withResolvedBinaryPathOverrideForTesting(fakeCLI.path) {
                 let snapshot = try await fetcher.loadLatestUsage(model: "sonnet")
-                #expect(snapshot.primary.usedPercent == 86)
+                #expect(snapshot.primary?.usedPercent == 86)
                 #expect(snapshot.secondary?.usedPercent == 12)
                 let fable = try #require(snapshot.extraRateWindows.first(where: { $0.id == "claude-fable" }))
                 #expect(fable.title == "Fable")

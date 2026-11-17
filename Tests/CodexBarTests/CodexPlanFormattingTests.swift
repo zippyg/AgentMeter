@@ -8,11 +8,12 @@ struct CodexPlanFormattingTests {
         #expect(CodexPlanFormatting.displayName("pro") == "Pro 20x")
         #expect(CodexPlanFormatting.displayName("Pro") == "Pro 20x")
         #expect(CodexPlanFormatting.displayName("Codex Pro") == "Pro 20x")
-        #expect(CodexPlanFormatting.displayName("prolite") == "Pro 5x")
-        #expect(CodexPlanFormatting.displayName("pro_lite") == "Pro 5x")
-        #expect(CodexPlanFormatting.displayName("pro-lite") == "Pro 5x")
-        #expect(CodexPlanFormatting.displayName("Pro Lite") == "Pro 5x")
-        #expect(CodexPlanFormatting.displayName("Codex Pro Lite") == "Pro 5x")
+        #expect(CodexPlanFormatting.displayName("prolite") == "Pro 10x")
+        #expect(CodexPlanFormatting.displayName("pro_lite") == "Pro 10x")
+        #expect(CodexPlanFormatting.displayName("pro-lite") == "Pro 10x")
+        #expect(CodexPlanFormatting.displayName("Pro Lite") == "Pro 10x")
+        #expect(CodexPlanFormatting.displayName("Codex Pro Lite") == "Pro 10x")
+        #expect(CodexPlanFormatting.displayName("Pro 10x") == "Pro 10x")
     }
 
     @Test

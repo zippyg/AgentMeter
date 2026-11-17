@@ -77,10 +77,12 @@ final class StatusItemMenu: NSMenu {
         }
     }
 
+    /// Tab and Shift-Tab, plus Shift-Command-[ and ] as in Chrome, which the trackpad's top-edge swipe
+    /// sends. Matched on key code: Shift turns the characters into { and }.
     nonisolated static func providerSwitcherTabNavigationDirection(
         for event: NSEvent) -> StatusItemMenuProviderNavigationDirection?
     {
-        guard event.type == .keyDown, event.keyCode == 48 else { return nil }
+        guard event.type == .keyDown else { return nil }
         let relevantModifiers = event.modifierFlags.intersection([
             .command,
             .option,
@@ -88,6 +90,11 @@ final class StatusItemMenu: NSMenu {
             .shift,
             .function,
         ])
+        if [33, 30].contains(event.keyCode) {
+            guard relevantModifiers == [.command, .shift] else { return nil }
+            return event.keyCode == 33 ? .previous : .next
+        }
+        guard event.keyCode == 48 else { return nil }
         switch relevantModifiers {
         case []:
             return .next

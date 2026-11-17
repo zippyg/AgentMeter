@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CodexBarCore
 
-@Suite(.serialized)
+@Suite(.serialized, OpenAIDashboardCacheIsolation())
 @MainActor
 struct CodexWebDashboardStrategyAuthorityTests {
     @Test

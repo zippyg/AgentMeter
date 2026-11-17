@@ -108,6 +108,9 @@ extension StatusItemController {
             lastError: errorOverride
                 ?? codexProjection?.userFacingErrors.usage
                 ?? self.store.userFacingError(for: target),
+            quotaRefreshFailed: claudeSwapAccount.map { $0.status != .ok }
+                ?? (usesOverrideCard ? errorOverride != nil : self.store.errors[target] != nil),
+            dashboardRefreshFailed: !usesOverrideCard && self.store.lastOpenAIDashboardError != nil,
             usageBarsShowUsed: self.settings.usageBarsShowUsed,
             resetTimeDisplayStyle: self.settings.resetTimeDisplayStyle,
             tokenCostUsageEnabled: self.settings.isCostUsageEffectivelyEnabled(for: target),

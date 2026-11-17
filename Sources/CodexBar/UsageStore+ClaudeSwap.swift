@@ -2,6 +2,54 @@ import CodexBarCore
 import Foundation
 
 extension UsageStore {
+    /// Read the switcher's existing cache during its normal refresh, with no extra provider polling.
+    static func readUsagePoolClaudeCache(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser, now: Date = Date()) -> [UsagePoolForecast.Account]
+    {
+        let root = home.appendingPathComponent(".claude-swap-backup")
+        do {
+            var accounts = try UsagePoolClaudeCache.accounts(
+                usage: Data(contentsOf: root.appendingPathComponent("cache/usage.json")),
+                sequence: Data(contentsOf: root.appendingPathComponent("sequence.json")),
+                umbrella: Data(contentsOf: root.appendingPathComponent("umbrella.json")),
+                umbrellaState: try? Data(contentsOf: root.appendingPathComponent("umbrella-state.json")), now: now)
+            let resets = ClaudeSwapLimitResets.cached(home: home, now: now)
+            for index in accounts.indices { accounts[index].claudeLimitResets = resets[accounts[index].id] }
+            return accounts
+        } catch { return [] }
+    }
+
+    /// Re-reads the switcher's files whenever its state folder changes, so the active login follows a
+    /// switch within a moment. No provider polling: these are the same local files read at refresh.
+    func startClaudeSwapStateWatch(home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+        guard self.claudeSwapStateWatcher == nil else { return }
+        self.claudeSwapStateWatcher = ClaudeSwapStateWatcher(
+            directory: home.appendingPathComponent(".claude-swap-backup")) { [weak self] in
+            Task { @MainActor [weak self] in self?.reloadUsagePoolClaudeCache(home: home) }
+        }
+    }
+
+    func reloadUsagePoolClaudeCache(home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+        guard self.isEnabled(.claude) else { return }
+        self.usagePoolClaudeAccounts = Self.readUsagePoolClaudeCache(home: home)
+    }
+
+    private func startClaudeGrantRefresh() {
+        guard (!SettingsStore.isRunningTests || self._test_claudeGrantRefresh != nil),
+              self.claudeGrantRefreshTask == nil else { return }
+        let manual = ProviderInteractionContext.current == .userInitiated
+        let fetch = self._test_claudeGrantRefresh
+        self.claudeGrantRefreshTask = Task { [weak self] in
+            if let fetch {
+                await fetch()
+            } else {
+                await ClaudeSwapLimitResets.refresh(home: FileManager.default.homeDirectoryForCurrentUser, manual: manual)
+                self?.reloadUsagePoolClaudeCache()
+            }
+            self?.claudeGrantRefreshTask = nil
+        }
+    }
+
     /// A present but failing feed stays separate from the CLI login's legacy provider state.
     func refreshClaudeSwapAccounts(generation: UInt64?) async -> Bool {
         do {
@@ -15,10 +63,12 @@ extension UsageStore {
             guard self.isCurrentProviderRefreshGeneration(.claude, generation: generation) else { return true }
             let hadFeed = self.claudeSwapAccounts != nil
             self.claudeSwapAccounts = accounts?.isEmpty == false ? accounts : nil
+            self.usagePoolClaudeAccounts = SettingsStore.isRunningTests ? [] : Self.readUsagePoolClaudeCache()
             guard let accounts = self.claudeSwapAccounts else {
                 if hadFeed { self.snapshots.removeValue(forKey: .claude) }
                 return false
             }
+            self.startClaudeGrantRefresh()
             // Only the explicitly active account may supply the single-provider icon/legacy widget.
             self.snapshots[.claude] = accounts.first { $0.isActiveCLI == true && $0.status == .ok }?
                 .claudeSwapUsageSnapshot
@@ -43,6 +93,7 @@ extension UsageStore {
             guard self.isCurrentProviderRefreshGeneration(.claude, generation: generation) else { return true }
             let now = Date()
             let message = "claude-swap feed unavailable. Retry refresh."
+            self.usagePoolClaudeAccounts = SettingsStore.isRunningTests ? [] : Self.readUsagePoolClaudeCache()
             self.claudeSwapAccounts = self.claudeSwapAccounts?.map {
                 $0.withStatus(
                     $0.status == .unavailable ? .unavailable : .stale,

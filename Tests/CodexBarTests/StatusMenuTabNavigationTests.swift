@@ -49,6 +49,17 @@ struct StatusMenuTabNavigationTests {
         }
         #expect(
             try StatusItemMenu.providerSwitcherTabNavigationDirection(
+                for: Self.tabKeyEvent(modifiers: [.command, .shift], keyCode: 33)) == .previous)
+        #expect(
+            try StatusItemMenu.providerSwitcherTabNavigationDirection(
+                for: Self.tabKeyEvent(modifiers: [.command, .shift], keyCode: 30)) == .next)
+        for modifiers: NSEvent.ModifierFlags in [[.command], [.shift], [.command, .shift, .option]] {
+            #expect(
+                try StatusItemMenu.providerSwitcherTabNavigationDirection(
+                    for: Self.tabKeyEvent(modifiers: modifiers, keyCode: 30)) == nil)
+        }
+        #expect(
+            try StatusItemMenu.providerSwitcherTabNavigationDirection(
                 for: Self.tabKeyEvent(type: .keyUp)) == nil)
         #expect(
             try StatusItemMenu.providerSwitcherTabNavigationDirection(

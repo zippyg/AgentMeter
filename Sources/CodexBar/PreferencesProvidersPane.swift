@@ -677,6 +677,8 @@ struct ProvidersPane: View {
             account: self.store.accountInfo(for: provider),
             isRefreshing: self.store.refreshingProviders.contains(provider),
             lastError: codexProjection?.userFacingErrors.usage ?? self.store.userFacingError(for: provider),
+            quotaRefreshFailed: self.store.errors[provider] != nil,
+            dashboardRefreshFailed: self.store.lastOpenAIDashboardError != nil,
             usageBarsShowUsed: self.settings.usageBarsShowUsed,
             resetTimeDisplayStyle: self.settings.resetTimeDisplayStyle,
             tokenCostUsageEnabled: self.settings.isCostUsageEffectivelyEnabled(for: provider),

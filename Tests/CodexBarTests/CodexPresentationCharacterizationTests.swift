@@ -127,7 +127,7 @@ struct CodexPresentationCharacterizationTests {
             includeContextualActions: false)
 
         let lines = self.textLines(from: descriptor)
-        #expect(lines.contains("Plan: Pro 5x"))
+        #expect(lines.contains("Plan: Pro 10x"))
         #expect(!lines.contains("Plan: Pro Lite"))
         #expect(!lines.contains("Plan: Prolite"))
     }

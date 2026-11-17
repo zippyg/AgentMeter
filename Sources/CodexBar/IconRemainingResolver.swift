@@ -36,6 +36,13 @@ enum IconRemainingResolver {
         secondaryOverrideWindowID: String? = nil)
         -> (primary: RateWindow?, secondary: RateWindow?)
     {
+        if style == .claude {
+            let windows = [snapshot.primary, snapshot.secondary, snapshot.tertiary].compactMap(\.self)
+                + (snapshot.extraRateWindows?.filter {
+                    $0.usageKnown && ($0.id.hasPrefix("claude-") && $0.id != "claude-routines")
+                }.map(\.window) ?? [])
+            return (primary: windows.first, secondary: windows.dropFirst().first)
+        }
         if style == .perplexity {
             let windows = snapshot.orderedPerplexityDisplayWindows()
             return (
@@ -73,6 +80,10 @@ enum IconRemainingResolver {
         secondaryOverrideWindowID: String? = nil)
         -> (primary: Double?, secondary: Double?)
     {
+        if style == .claude {
+            let windows = Self.resolvedWindows(snapshot: snapshot, style: style)
+            return (windows.primary?.remainingPercent, windows.secondary?.remainingPercent)
+        }
         if style == .perplexity {
             let windows = snapshot.orderedPerplexityDisplayWindows()
             return (

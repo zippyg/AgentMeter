@@ -192,6 +192,14 @@ struct GeneralPane: View {
                         title: L("quota_warning_notifications_title"),
                         subtitle: L("quota_warning_notifications_subtitle"),
                         binding: self.$settings.quotaWarningNotificationsEnabled)
+                    PreferenceToggleRow(
+                        title: L("Upcoming reset warnings (Codex)"),
+                        subtitle: L("Remind 24 hours and 1 hour before weekly quota resets with quota remaining."),
+                        binding: self.$settings.upcomingResetNotificationsEnabled)
+                    PreferenceToggleRow(
+                        title: L("Codex reset-credit expiry countdowns"),
+                        subtitle: L("Remind 1 day and 1 hour before an available full reset credit expires."),
+                        binding: self.$settings.codexResetCreditExpiryCountdownEnabled)
                     if self.settings.quotaWarningNotificationsEnabled {
                         GlobalQuotaWarningSettingsView(settings: self.settings)
                     }

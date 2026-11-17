@@ -4,6 +4,8 @@ extension StatusItemController {
     func prepareForAppShutdown() {
         guard !self.hasPreparedForAppShutdown else { return }
         self.hasPreparedForAppShutdown = true
+        self.usagePoolPanel?.performClose(nil)
+        self.usagePoolPanel = nil
         #if DEBUG
         self.isReleasedForTesting = true
         #endif

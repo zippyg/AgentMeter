@@ -24,7 +24,8 @@ final class AppNotifications {
         title: String,
         body: String,
         badge: NSNumber? = nil,
-        soundEnabled: Bool = true)
+        soundEnabled: Bool = true,
+        isCurrent: @escaping @MainActor () -> Bool = { true })
     {
         guard !Self.isRunningUnderTests else { return }
         let center = self.centerProvider()
@@ -37,6 +38,7 @@ final class AppNotifications {
                 return
             }
 
+            guard isCurrent() else { return }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body

@@ -39,7 +39,7 @@ struct ClaudeStatusLineUsageCacheTests {
             ],
             now: now)
 
-        #expect(snapshot.primary.usedPercent == 34)
+        #expect(snapshot.primary?.usedPercent == 34)
         #expect(snapshot.secondary?.usedPercent == 31)
         #expect(snapshot.opus?.usedPercent == 7)
         #expect(snapshot.loginMethod == "Claude status-line cache")

@@ -14,10 +14,14 @@ extension UsageStore {
         _ = self.lastSourceLabels
         _ = self.lastFetchAttempts
         _ = self.claudeSwapAccounts
+        _ = self.usagePoolClaudeAccounts
         _ = self.accountSnapshots
         _ = self.codexAccountSnapshots
         _ = self.kiloScopeSnapshots
         _ = self.tokenSnapshots
+        _ = self.overviewTokenSnapshots
+        _ = self.importedCostSources
+        _ = self.cachedOwnCostSources
         _ = self.tokenErrors
         _ = self.tokenRefreshInFlight
         _ = self.credits
@@ -136,6 +140,10 @@ final class UsageStore {
     var errors: [UsageProvider: String] = [:]
     var lastSourceLabels: [UsageProvider: String] = [:]
     var lastFetchAttempts: [UsageProvider: [ProviderFetchAttempt]] = [:]
+    var usagePoolClaudeAccounts: [UsagePoolForecast.Account] = []
+    @ObservationIgnored var _test_claudeGrantRefresh: (@Sendable () async -> Void)?
+    @ObservationIgnored var claudeGrantRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var claudeSwapStateWatcher: ClaudeSwapStateWatcher?
     var claudeSwapAccounts: [AgentMeterProviderSnapshot]?
     @ObservationIgnored var _test_claudeSwapFetch: (@Sendable () async throws -> [AgentMeterProviderSnapshot]?)?
     var accountSnapshots: [UsageProvider: [TokenAccountUsageSnapshot]] = [:]
@@ -145,6 +153,7 @@ final class UsageStore {
     var sharedCostExportFailures: Set<UsageProvider> = []
     var overviewTokenSnapshots: [UsageProvider: CostUsageTokenSnapshot] = [:]
     var importedCostSources: [SharedCostUsage.Source] = []
+    var cachedOwnCostSources: [SharedCostUsage.Source] = []
     var tokenErrors: [UsageProvider: String] = [:]
     var tokenRefreshInFlight: Set<UsageProvider> = []
     var credits: CreditsSnapshot?
@@ -285,6 +294,8 @@ final class UsageStore {
     @ObservationIgnored private let providerAvailabilityCacheTTL: TimeInterval = 1
     @ObservationIgnored let accountInfoCacheTTL: TimeInterval = 30
     @ObservationIgnored private let tokenFetchTTL: TimeInterval = 300
+    @ObservationIgnored var _test_tokenSnapshotLoad: (@MainActor (Int) async throws -> CostUsageTokenSnapshot)?
+    @ObservationIgnored var _test_tokenFetchTimeout: TimeInterval?
     @ObservationIgnored private let tokenFetchTimeout: TimeInterval = 10 * 60
     @ObservationIgnored let startupBehavior: StartupBehavior
     @ObservationIgnored let planUtilizationPersistenceCoordinator: PlanUtilizationHistoryPersistenceCoordinator
@@ -328,6 +339,10 @@ final class UsageStore {
         self.planUtilizationPersistenceCoordinator = PlanUtilizationHistoryPersistenceCoordinator(
             store: planUtilizationHistoryStore)
         self.providerMetadata = registry.metadata
+        if self.startupBehavior.automaticallyStartsBackgroundWork {
+            self.usagePoolClaudeAccounts = Self.readUsagePoolClaudeCache()
+            self.startClaudeSwapStateWatch()
+        }
         self
             .failureGates = Dictionary(
                 uniqueKeysWithValues: UsageProvider.allCases
@@ -1473,7 +1488,11 @@ extension UsageStore {
         }
     }
 
-    private func refreshTokenUsage(_ provider: UsageProvider, force: Bool) async {
+    func refreshTokenUsage(
+        _ provider: UsageProvider, force: Bool,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        exportDirectory: URL? = nil) async
+    {
         guard self.sessionIsActive else { return }
         guard ProviderDescriptorRegistry.descriptor(for: provider).tokenCost.supportsTokenCost else {
             self.tokenSnapshots.removeValue(forKey: provider)
@@ -1518,7 +1537,7 @@ extension UsageStore {
         let now = Date()
         let historyDays = self.settings.costUsageHistoryDays
         let costScope = self.tokenCostScope(for: provider)
-        let costScopeSignature = "\(costScope.signature)|historyDays=\(historyDays)"
+        let costScopeSignature = "\(costScope)|historyDays=\(historyDays)"
         if !force,
            let last = self.lastTokenFetchAt[provider],
            self.lastTokenFetchScope[provider] == costScopeSignature,
@@ -1536,9 +1555,12 @@ extension UsageStore {
         self.tokenCostLogger
             .debug("cost usage start provider=\(providerText) force=\(force)")
 
+        let needsTodaySnapshot = provider == .codex && self.tokenSnapshots[provider] == nil
+            && self.overviewTokenSnapshots[provider] == nil
+        let todayInstall = TodaySnapshotInstall()
         do {
             let fetcher = self.costUsageFetcher
-            let timeoutSeconds = self.tokenFetchTimeout
+            let timeoutSeconds = self._test_tokenFetchTimeout ?? self.tokenFetchTimeout
             let environment = provider == .bedrock
                 ? ProviderRegistry.makeEnvironment(
                     base: self.environmentBase,
@@ -1547,24 +1569,40 @@ extension UsageStore {
                     tokenOverride: nil)
                 : self.environmentBase
             let codexHomes = provider == .codex
-                ? try self.settings.codexCostHomePaths(environment: environment) : []
+                ? try self.settings.codexCostHomePaths(environment: environment, homeDirectory: homeDirectory) : []
+            let load: @MainActor @Sendable (Int) async throws -> CostUsageTokenSnapshot = { days in
+                if let override = self._test_tokenSnapshotLoad { return try await override(days) }
+                return try await fetcher.loadTokenSnapshot(
+                    provider: provider, environment: environment, now: now, forceRefresh: force,
+                    allowVertexClaudeFallback: !self.isEnabled(.claude),
+                    historyDays: days, codexHomePaths: codexHomes)
+            }
+            let loadSnapshots: @MainActor @Sendable () async throws
+                -> (CostUsageTokenSnapshot, CostUsageTokenSnapshot?) = {
+                if needsTodaySnapshot {
+                    let today = try await load(1)
+                    try Task.checkCancellation()
+                    guard self.sessionIsActive, self.settings.costUsageEnabled, self.isEnabled(provider) else {
+                        throw CancellationError()
+                    }
+                    if self.tokenSnapshots[provider] == nil {
+                        self.tokenSnapshots[provider] = today
+                        self.tokenErrors[provider] = nil
+                        todayInstall.installed = true
+                        self.persistWidgetSnapshot(reason: "token-usage-today")
+                    }
+                }
+                let snapshot = try await load(historyDays)
+                let overview: CostUsageTokenSnapshot? = if (provider == .claude || provider == .codex), historyDays >= 30 {
+                    snapshot
+                } else if provider == .codex || provider == .claude {
+                    try await load(max(30, historyDays))
+                } else { nil }
+                return (snapshot, overview)
+            }
             let (snapshot, overview) = try await withThrowingTaskGroup(
                 of: (CostUsageTokenSnapshot, CostUsageTokenSnapshot?).self) { group in
-                group.addTask(priority: .utility) {
-                    let snapshot = try await fetcher.loadTokenSnapshot(
-                        provider: provider,
-                        environment: environment,
-                        now: now,
-                        forceRefresh: force,
-                        allowVertexClaudeFallback: !self.isEnabled(.claude),
-                        codexHomePath: costScope.codexHomePath,
-                        historyDays: historyDays)
-                    let overview = provider == .codex || provider == .claude
-                        ? try await fetcher.loadTokenSnapshot(
-                            provider: provider, environment: environment, now: now, forceRefresh: force,
-                            historyDays: max(30, historyDays), codexHomePaths: codexHomes) : nil
-                    return (snapshot, overview)
-                }
+                group.addTask(priority: .utility) { try await loadSnapshots() }
                 group.addTask {
                     try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
                     throw CostUsageError.timedOut(seconds: Int(timeoutSeconds))
@@ -1576,18 +1614,8 @@ extension UsageStore {
 
             guard self.sessionIsActive, self.settings.costUsageEnabled, self.isEnabled(provider) else { return }
             if provider == .claude || provider == .codex {
-                self.overviewTokenSnapshots[provider] = overview ?? snapshot
-                do {
-                    self.importedCostSources = try await SharedCostUsageExchange.shared.publish(
-                        provider: provider, snapshot: overview ?? snapshot,
-                        enabledProviders: Set([UsageProvider.claude, .codex].filter { self.isEnabled($0) }))
-                    self.sharedCostExportFailures.remove(provider)
-                    self.persistUsageExport()
-                } catch {
-                    self.sharedCostExportFailures.insert(provider)
-                    self.tokenCostLogger.error("Shared daily usage export failed")
-                    self.importedCostSources = SharedCostUsage.importedSources()
-                }
+                await self.publishOverviewTokenSnapshot(
+                    overview ?? snapshot, provider: provider, exportDirectory: exportDirectory)
             }
             guard !snapshot.daily.isEmpty else {
                 self.tokenSnapshots.removeValue(forKey: provider)
@@ -1612,6 +1640,12 @@ extension UsageStore {
             self.tokenFailureGates[provider]?.recordSuccess()
             self.persistWidgetSnapshot(reason: "token-usage")
         } catch {
+            // Only withdraw a one-day snapshot this refresh installed, and rewrite the saved snapshots
+            // so a failed backfill never leaves one day standing in for full history.
+            if todayInstall.installed {
+                self.tokenSnapshots.removeValue(forKey: provider)
+                self.persistWidgetSnapshot(reason: "token-usage-today-withdrawn")
+            }
             if error is CancellationError { return }
             let duration = Date().timeIntervalSince(startedAt)
             let msg = error.localizedDescription
@@ -1629,4 +1663,29 @@ extension UsageStore {
             }
         }
     }
+
+    private func publishOverviewTokenSnapshot(
+        _ snapshot: CostUsageTokenSnapshot, provider: UsageProvider, exportDirectory: URL?) async
+    {
+        self.overviewTokenSnapshots[provider] = snapshot
+        do {
+            self.importedCostSources = try await SharedCostUsageExchange.shared.publish(
+                provider: provider, snapshot: snapshot,
+                directory: exportDirectory ?? SharedCostUsage.directory,
+                enabledProviders: Set([UsageProvider.claude, .codex].filter { self.isEnabled($0) }))
+            self.sharedCostExportFailures.remove(provider)
+            self.persistUsageExport(to: exportDirectory?.appendingPathComponent(AgentMeterUsageExport.filename)
+                ?? AgentMeterUsageExport.defaultURL())
+        } catch {
+            self.sharedCostExportFailures.insert(provider)
+            self.tokenCostLogger.error("Shared daily usage export failed")
+            self.importedCostSources = SharedCostUsage.importedSources()
+        }
+    }
+}
+
+/// Marks whether a refresh put its one-day Codex snapshot in place, so failure cleanup removes only that.
+@MainActor
+private final class TodaySnapshotInstall {
+    var installed = false
 }

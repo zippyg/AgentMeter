@@ -123,4 +123,16 @@ struct LaunchAtLoginManagerTests {
         #expect(registerCalls == 0)
         #expect(unregisterCalls == 0)
     }
+
+    @Test
+    func `only an installed app outside QA may register at login`() {
+        #expect(LaunchAtLoginManager.mayRegister(bundlePath: "/Applications/AgentMeter.app", environment: [:]))
+        #expect(!LaunchAtLoginManager.mayRegister(bundlePath: "/Applications/AgentMeter.app",
+                                                  environment: ["AGENTMETER_QA_ALLOW": "1"]))
+        for path in ["/Users/invented/repo/.build/arm64-apple-macosx/debug",
+                     "/Users/invented/repo/.agentmeter-artifacts/AgentMeter-release.app",
+                     "/Users/invented/Applications/AgentMeter.app"] {
+            #expect(!LaunchAtLoginManager.mayRegister(bundlePath: path, environment: [:]))
+        }
+    }
 }

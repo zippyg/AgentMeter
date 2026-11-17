@@ -45,6 +45,7 @@ public struct CostUsageTokenSnapshot: Sendable, Equatable {
 public struct CostUsageDailyReport: Sendable, Decodable {
     public struct ModelBreakdown: Sendable, Decodable, Equatable {
         public let modelName: String
+        public let modelBreakdowns: [ModelBreakdown]?
         public let costUSD: Double?
         public let totalTokens: Int?
         public let requestCount: Int?
@@ -55,6 +56,7 @@ public struct CostUsageDailyReport: Sendable, Decodable {
 
         private enum CodingKeys: String, CodingKey {
             case modelName
+            case modelBreakdowns
             case costUSD
             case cost
             case totalTokens
@@ -69,6 +71,7 @@ public struct CostUsageDailyReport: Sendable, Decodable {
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             self.modelName = try container.decode(String.self, forKey: .modelName)
+            self.modelBreakdowns = try container.decodeIfPresent([ModelBreakdown].self, forKey: .modelBreakdowns)
             self.costUSD =
                 try container.decodeIfPresent(Double.self, forKey: .costUSD)
                 ?? container.decodeIfPresent(Double.self, forKey: .cost)
@@ -90,9 +93,11 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             standardCostUSD: Double? = nil,
             priorityCostUSD: Double? = nil,
             standardTokens: Int? = nil,
-            priorityTokens: Int? = nil)
+            priorityTokens: Int? = nil,
+            modelBreakdowns: [ModelBreakdown]? = nil)
         {
             self.modelName = modelName
+            self.modelBreakdowns = modelBreakdowns
             self.costUSD = costUSD
             self.totalTokens = totalTokens
             self.requestCount = requestCount
@@ -371,6 +376,7 @@ extension CostUsageDailyReport {
         var modelsUsed: Set<String> = []
         var breakdowns: [String: BreakdownAccumulator] = [:]
         var accounts: [String: (tokens: Int, cost: Double)] = [:]
+        var accountModels: [String: [String: BreakdownAccumulator]] = [:]
 
         mutating func add(_ entry: Entry) {
             let entryDerivedTotalTokens = (entry.inputTokens ?? 0)
@@ -419,6 +425,11 @@ extension CostUsageDailyReport {
                 }
             }
             for account in entry.accountBreakdowns ?? [] {
+                for model in account.modelBreakdowns ?? [] {
+                    var accumulator = self.accountModels[account.modelName]?[model.modelName] ?? BreakdownAccumulator()
+                    accumulator.add(model)
+                    self.accountModels[account.modelName, default: [:]][model.modelName] = accumulator
+                }
                 let previous = self.accounts[account.modelName] ?? (0, 0)
                 self.accounts[account.modelName] = (
                     previous.tokens + (account.totalTokens ?? 0),
@@ -459,7 +470,10 @@ extension CostUsageDailyReport {
                 modelsUsed: modelsUsed,
                 modelBreakdowns: modelBreakdowns,
                 accountBreakdowns: self.accounts.isEmpty ? nil : self.accounts.sorted { $0.key < $1.key }.map {
-                    ModelBreakdown(modelName: $0.key, costUSD: $0.value.cost, totalTokens: $0.value.tokens)
+                    ModelBreakdown(modelName: $0.key, costUSD: $0.value.cost, totalTokens: $0.value.tokens,
+                        modelBreakdowns: self.accountModels[$0.key].map { models in
+                            models.sorted { $0.key < $1.key }.map { $0.value.build(modelName: $0.key) }
+                        })
                 })
         }
     }

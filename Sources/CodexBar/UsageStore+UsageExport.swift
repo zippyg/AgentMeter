@@ -93,10 +93,30 @@ enum AgentMeterUsageExportWriter {
 }
 
 extension UsageStore {
+    nonisolated static func readOwnCostSources(
+        directory: URL, now: Date, user: String = NSUserName()) -> [SharedCostUsage.Source]
+    {
+        let url = SharedCostUsage.defaultURL(user: user, directory: directory)
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let aggregate = try? SharedCostUsage.read(at: url), aggregate.user == user else { return [] }
+        return aggregate.engines.filter { ["claude", "codex"].contains($0.engine) }.map {
+            .init(user: user, usage: $0, stale: now.timeIntervalSince(aggregate.generatedAt) > SharedCostUsage.maxAge
+                || now.timeIntervalSince($0.generatedAt) > SharedCostUsage.maxAge)
+        }
+    }
+
     /// This user's own snapshots plus every other user's shared daily counters.
     func allAccountsUsageSources(now: Date) -> [SharedCostUsage.Source] {
         [UsageProvider.claude, .codex].compactMap { provider -> SharedCostUsage.Source? in
-            guard let snapshot = self.overviewTokenSnapshots[provider] else { return nil }
+            guard self.isEnabled(provider) else { return nil }
+            guard let snapshot = self.overviewTokenSnapshots[provider] else {
+                return self.cachedOwnCostSources.first { $0.usage.engine == provider.rawValue }.map {
+                    .init(user: $0.user, usage: $0.usage,
+                          stale: $0.stale || now.timeIntervalSince($0.usage.generatedAt) > SharedCostUsage.maxAge)
+                }
+            }
             return .init(
                 user: NSUserName(),
                 usage: .init(provider: provider, snapshot: snapshot),
@@ -134,11 +154,11 @@ extension UsageStore {
             all: scope(.overview), claude: scope(.claude), codex: scope(.codex))
     }
 
-    func persistUsageExport() {
+    func persistUsageExport(to url: URL = AgentMeterUsageExport.defaultURL()) {
         guard self.settings.costUsageEnabled else { return }
         let export = self.makeUsageExport()
         AgentMeterUsageExportWriter.enqueue {
-            try? export.write()
+            try? export.write(to: url)
         }
     }
 }

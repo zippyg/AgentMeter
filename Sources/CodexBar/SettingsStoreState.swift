@@ -11,6 +11,8 @@ struct SettingsDefaultsState {
     var debugKeepCLISessionsAlive: Bool
     var statusChecksEnabled: Bool
     var agentMeterBridgeEnabled: Bool
+    var upcomingResetNotificationsEnabled: Bool
+    var codexResetCreditExpiryCountdownEnabled: Bool
     var sessionQuotaNotificationsEnabled: Bool
     var quotaWarningNotificationsEnabled: Bool
     var quotaWarningThresholdsRaw: [Int]

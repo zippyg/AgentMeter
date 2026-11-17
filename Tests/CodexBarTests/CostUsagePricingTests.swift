@@ -17,6 +17,20 @@ struct CostUsagePricingTests {
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.3-codex-spark") == "gpt-5.3-codex-spark")
     }
 
+    @Test func codexSolUsesCachedModelPricing() throws {
+        // The installed models.dev cache's OpenAI entry, without any account or session data.
+        let catalog = try JSONDecoder().decode(ModelsDevCatalog.self, from: Data("""
+        {"openai":{"models":{"gpt-6.1-sol":{"id":"gpt-6.1-sol","cost":{
+          "input":2,"output":10,"cache_read":0.1}}}}}
+        """.utf8))
+        let root = try Self.cacheRoot()
+        ModelsDevCache.save(catalog: catalog, fetchedAt: Date(), cacheRoot: root)
+        let cost = try #require(CostUsagePricing.codexCostUSD(
+            model: "gpt-6.1-sol", inputTokens: 1_000_000, cachedInputTokens: 900_000,
+            outputTokens: 10_000, modelsDevCacheRoot: root))
+        #expect(abs(cost - 0.39) < 0.000001)
+    }
+
     @Test
     func `codex cost supports gpt51 codex max`() {
         let cost = CostUsagePricing.codexCostUSD(

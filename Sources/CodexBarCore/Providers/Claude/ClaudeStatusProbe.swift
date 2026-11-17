@@ -197,20 +197,21 @@ public struct ClaudeStatusProbe: Sendable {
         // may omit the weekly panel entirely, and we should treat that as "unavailable" rather than guessing.
         let compactContext = usagePanelText.lowercased().filter { !$0.isWhitespace }
         let hasWeeklyLabel =
-            labelContext.contains("currentweek")
-            || compactContext.contains("currentweek")
+            labelContext.contains("currentweekallmodels")
+            || compactContext.contains("currentweek(allmodels)")
         let hasOpusLabel = labelContext.contains("opus") || labelContext.contains("sonnet")
 
-        if sessionPct == nil || (hasWeeklyLabel && weeklyPct == nil) || (hasOpusLabel && opusPct == nil) {
+        let hasSessionLabel = labelContext.contains("currentsession") || labelContext.contains("curretsession")
+        if (hasSessionLabel && sessionPct == nil) || (hasWeeklyLabel && weeklyPct == nil) || (hasOpusLabel && opusPct == nil) {
             let ordered = self.allPercents(usagePanelText)
-            if sessionPct == nil, ordered.indices.contains(0) { sessionPct = ordered[0] }
+            if hasSessionLabel, sessionPct == nil, ordered.indices.contains(0) { sessionPct = ordered[0] }
             if hasWeeklyLabel, weeklyPct == nil, ordered.indices.contains(1) { weeklyPct = ordered[1] }
             if hasOpusLabel, opusPct == nil, ordered.indices.contains(2) { opusPct = ordered[2] }
         }
 
         let identity = Self.parseIdentity(usageText: clean, statusText: statusClean)
 
-        guard let sessionPct else {
+        guard sessionPct != nil || weeklyPct != nil || opusPct != nil else {
             Self.dumpIfNeeded(
                 enabled: shouldDump,
                 reason: "missing session label",

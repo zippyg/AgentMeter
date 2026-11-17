@@ -82,7 +82,7 @@ public enum ClaudeWebAPIFetcher {
 
     /// Claude usage data from the API
     public struct WebUsageData: Sendable {
-        public let sessionPercentUsed: Double
+        public let sessionPercentUsed: Double?
         public let sessionResetsAt: Date?
         public let weeklyPercentUsed: Double?
         public let weeklyResetsAt: Date?
@@ -94,7 +94,7 @@ public enum ClaudeWebAPIFetcher {
         public let loginMethod: String?
 
         public init(
-            sessionPercentUsed: Double,
+            sessionPercentUsed: Double?,
             sessionResetsAt: Date?,
             weeklyPercentUsed: Double?,
             weeklyResetsAt: Date?,
@@ -492,8 +492,6 @@ public enum ClaudeWebAPIFetcher {
                 sessionResets = self.parseISO8601Date(resetsAt)
             }
         }
-        // Enterprise/credit-based accounts return null for five_hour; treat as 0% rather than an error.
-        let resolvedSessionPercent = sessionPercent ?? 0.0
 
         // Parse seven_day (weekly) usage
         var weeklyPercent: Double?
@@ -511,7 +509,8 @@ public enum ClaudeWebAPIFetcher {
         var opusPercent: Double?
         if let sevenDaySonnet = json["seven_day_sonnet"] as? [String: Any] {
             opusPercent = Self.percentValue(from: sevenDaySonnet["utilization"])
-        } else if let sevenDayOpus = json["seven_day_opus"] as? [String: Any] {
+        }
+        if opusPercent == nil, let sevenDayOpus = json["seven_day_opus"] as? [String: Any] {
             opusPercent = Self.percentValue(from: sevenDayOpus["utilization"])
         }
         let extraRateParse = ClaudeWebExtraRateWindowParser.parse(from: json)
@@ -521,7 +520,7 @@ public enum ClaudeWebAPIFetcher {
         let extraUsageCost = ClaudeWebExtraUsageCost.parse(from: json["extra_usage"])
 
         return WebUsageData(
-            sessionPercentUsed: resolvedSessionPercent,
+            sessionPercentUsed: sessionPercent,
             sessionResetsAt: sessionResets,
             weeklyPercentUsed: weeklyPercent,
             weeklyResetsAt: weeklyResets,

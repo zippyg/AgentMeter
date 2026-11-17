@@ -59,11 +59,15 @@ extension SettingsStore {
         }
     }
 
-    func codexCostHomePaths(environment: [String: String]) throws -> [String] {
-        let defaultHome = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path
+    func codexCostHomePaths(
+        environment: [String: String],
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> [String]
+    {
+        let defaultHome = homeDirectory.appendingPathComponent(".codex").path
         let ambientHome = environment["CODEX_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let homes = [defaultHome] + (ambientHome.flatMap { $0.isEmpty ? nil : [$0] } ?? [])
             + (try self.loadManagedCodexAccounts()).accounts.map(\.managedHomePath)
+            + (CodexOverflowConfiguration.load(environment: environment).map { [$0.homeURL.path] } ?? [])
         return Array(Set(homes)).sorted()
     }
 

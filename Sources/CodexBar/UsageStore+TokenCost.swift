@@ -14,29 +14,44 @@ extension UsageStore {
         self.lastTokenFetchAt[provider]
     }
 
-    func hydrateCachedTokenSnapshots(now: Date = Date()) {
-        guard self.sessionIsActive else { return }
-        guard self.settings.costUsageEnabled else { return }
+    @discardableResult
+    func hydrateCachedTokenSnapshots(
+        now: Date = Date(), directory: URL = SharedCostUsage.directory,
+        codexHomePaths: [String]? = nil) -> Task<Void, Never>?
+    {
+        guard self.sessionIsActive else { return nil }
+        guard self.settings.costUsageEnabled else { return nil }
+        // Own daily counters are small and already attributed. Show them while the full
+        // transcript scan waits behind other providers on the serial scan executor.
+        Task { @MainActor [weak self] in
+            let sources = await Task.detached(priority: .utility) {
+                Self.readOwnCostSources(directory: directory, now: now)
+            }.value
+            guard let self, self.sessionIsActive, self.settings.costUsageEnabled else { return }
+            self.cachedOwnCostSources = sources
+        }
         guard self.settings.enabledProvidersOrdered(metadataByProvider: self.providerMetadata).contains(.codex) else {
-            return
+            return nil
         }
 
+        guard let homes = try? codexHomePaths ?? self.settings.codexCostHomePaths(environment: self.environmentBase)
+        else { return nil }
         let scope = self.tokenCostScope(for: .codex)
         let historyDays = self.settings.costUsageHistoryDays
-        Task { @MainActor [weak self] in
+        return Task { @MainActor [weak self] in
             guard let self else { return }
             guard self.tokenSnapshots[.codex] == nil else { return }
             guard let snapshot = await self.costUsageFetcher.loadCachedCodexTokenSnapshot(
                 now: now,
-                codexHomePath: scope.codexHomePath,
-                historyDays: historyDays)
+                historyDays: historyDays,
+                codexHomePaths: homes)
             else {
                 return
             }
             guard self.settings.costUsageEnabled,
                   self.sessionIsActive,
                   self.isEnabled(.codex),
-                  self.tokenCostScope(for: .codex).signature == scope.signature,
+                  self.tokenCostScope(for: .codex) == scope,
                   self.tokenSnapshots[.codex] == nil
             else {
                 return
@@ -50,16 +65,11 @@ extension UsageStore {
         self.tokenRefreshInFlight.contains(provider)
     }
 
-    func tokenCostScope(for provider: UsageProvider) -> (codexHomePath: String?, signature: String) {
-        guard provider == .codex else {
-            return (nil, provider.rawValue)
-        }
-        let homePath = self.settings.activeManagedCodexRemoteHomePath?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let homePath, !homePath.isEmpty else {
-            return (nil, "codex:ambient")
-        }
-        return (homePath, "codex:managed:\(homePath)")
+    func tokenCostScope(for provider: UsageProvider) -> String {
+        guard provider == .codex else { return provider.rawValue }
+        // Local usage history belongs to this Mac, independent of the selected login.
+        let homes = try? self.settings.codexCostHomePaths(environment: self.environmentBase)
+        return "codex:mac:\(homes?.joined(separator: "|") ?? "unreadable")"
     }
 
     func tokenSnapshot(

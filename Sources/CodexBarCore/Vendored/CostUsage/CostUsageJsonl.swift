@@ -34,8 +34,8 @@ enum CostUsageJsonl {
         onLine: (Line) -> Void) throws
         -> Int64
     {
-        let handle = try FileHandle(forReadingFrom: fileURL)
-        defer { try? handle.close() }
+        let handle = try CostUsageLogFile.Reader(url: fileURL)
+        defer { handle.close() }
 
         let startOffset = max(0, offset)
         if startOffset > 0 {

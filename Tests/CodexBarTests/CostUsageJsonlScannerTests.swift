@@ -58,6 +58,39 @@ struct CostUsageJsonlScannerTests {
         #expect(scanned[1].wasTruncated == true)
     }
 
+    @Test
+    func compressedReaderClosedBeforeEOFKillsChildIgnoringSIGTERM() throws {
+        let root = try self.makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("zstd")
+        try """
+        #!/bin/sh
+        trap '' TERM PIPE
+        printf '%064d' $$
+        while :; do :; done
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let compressed = root.appendingPathComponent("session.jsonl.zst")
+        try Data().write(to: compressed)
+
+        try CostUsageLogFile.$zstdPath.withValue(executable.path) {
+            let reader = try CostUsageLogFile.Reader(url: compressed)
+            let header = try #require(try reader.read(upToCount: 64))
+            let pid = try #require(Int32(String(decoding: header, as: UTF8.self)))
+            // Rescue the pre-fix implementation so a regression fails without hanging the suite.
+            let finished = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                if finished.wait(timeout: .now() + 3) == .timedOut {
+                    kill(pid, SIGKILL)
+                }
+            }
+            let started = ContinuousClock.now
+            reader.close()
+            finished.signal()
+            #expect(started.duration(to: .now) < .seconds(2))
+        }
+    }
+
     private func makeTemporaryRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "codexbar-cost-usage-jsonl-\(UUID().uuidString)",

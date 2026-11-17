@@ -318,6 +318,10 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
 
     @discardableResult
     func closeOpenMenusFromShortcutIfNeeded() -> Bool {
+        if self.usagePoolPanel?.isShown == true {
+            self.usagePoolPanel?.performClose(nil)
+            return true
+        }
         guard !self.openMenus.isEmpty else { return false }
 
         let menus = Array(self.openMenus.values)
@@ -356,40 +360,7 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
                 name: .codexbarOpenSettings,
                 object: nil,
                 userInfo: ["tab": tab.rawValue])
-            _ = NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-            self.showPreferencesWindow()
         }
-    }
-
-    private func showPreferencesWindow() {
-        if let window = self.preferencesWindowController?.window {
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-
-        let rootView = PreferencesView(
-            settings: self.settings,
-            store: self.store,
-            updater: self.updater,
-            selection: self.preferencesSelection,
-            managedCodexAccountCoordinator: self.managedCodexAccountCoordinator,
-            codexAccountPromotionCoordinator: self.codexAccountPromotionCoordinator,
-            runProviderLoginFlow: { [weak self] provider in
-                await self?.runLoginFlowFromSettings(provider: provider)
-            })
-        let hostingController = NSHostingController(rootView: rootView)
-        let tab = self.preferencesSelection.tab
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = AgentMeterProductIdentity.displayName
-        window.identifier = NSUserInterfaceItemIdentifier("com_apple_SwiftUI_Settings_window")
-        window.setContentSize(NSSize(width: tab.preferredWidth, height: tab.preferredHeight))
-        window.styleMask = [.titled, .closable, .miniaturizable]
-        window.isReleasedWhenClosed = false
-        window.center()
-        let controller = NSWindowController(window: window)
-        self.preferencesWindowController = controller
-        controller.showWindow(nil)
-        window.makeKeyAndOrderFront(nil)
     }
 
     @objc func quit() {

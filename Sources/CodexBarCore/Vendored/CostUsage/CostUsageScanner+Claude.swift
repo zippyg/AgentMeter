@@ -812,6 +812,11 @@ extension CostUsageScanner {
             CostUsageCacheIO.save(provider: provider, cache: cache, cacheRoot: options.cacheRoot)
         }
 
+        if provider == .claude {
+            CostUsageScanStatus.record(
+                .claude, roots: roots, files: cache.files,
+                at: Date(timeIntervalSince1970: Double(cache.lastScanUnixMs) / 1000))
+        }
         let modelsDevCatalog = CostUsagePricing.modelsDevCatalog(now: now, cacheRoot: options.cacheRoot)
         return Self.buildClaudeReportFromCache(
             cache: cache,
@@ -820,11 +825,12 @@ extension CostUsageScanner {
             modelsDevCacheRoot: options.cacheRoot)
     }
 
-    private static func buildClaudeReportFromCache(
+    static func buildClaudeReportFromCache(
         cache: CostUsageCache,
         range: CostUsageDayRange,
         modelsDevCatalog: ModelsDevCatalog? = nil,
-        modelsDevCacheRoot: URL? = nil) -> CostUsageDailyReport
+        modelsDevCacheRoot: URL? = nil,
+        timeline: [(at: Int64, slot: Int)]? = nil) -> CostUsageDailyReport
     {
         var entries: [CostUsageDailyReport.Entry] = []
         var totalInput = 0
@@ -836,9 +842,9 @@ extension CostUsageScanner {
         var costSeen = false
         let costScale = 1_000_000_000.0
         var repricedCosts: [ClaudeDayModelKey: ClaudeRepricedCost] = [:]
-        // day -> account -> (tokens, cost); rows with no account land under "unknown".
-        var accountDays: [String: [String: (tokens: Int, cost: Double)]] = [:]
-        let timeline = Self.claudeSwapTimeline()
+        // day -> account -> model -> (tokens, cost); rows with no account land under "unknown".
+        var accountDays: [String: [String: [String: (tokens: Int, cost: Double)]]] = [:]
+        let timeline = timeline ?? Self.claudeSwapTimeline()
 
         for row in Self.reconciledClaudeRows(cache: cache) {
             let key = ClaudeDayModelKey(day: row.dayKey, model: row.model)
@@ -876,9 +882,9 @@ extension CostUsageScanner {
             let account = row.account
                 ?? row.timestampUnixMs.flatMap { Self.claudeSwapSlot(at: $0, timeline: timeline) }
                 ?? "unknown"
-            let previous = accounts[account] ?? (0, 0)
+            let previous = accounts[account]?[row.model] ?? (0, 0)
             let tokens = row.input + row.cacheRead + row.cacheCreate + row.output
-            accounts[account] = (previous.tokens + tokens, previous.cost + (cost ?? 0))
+            accounts[account, default: [:]][row.model] = (previous.tokens + tokens, previous.cost + (cost ?? 0))
             accountDays[row.dayKey] = accounts
         }
 
@@ -949,8 +955,12 @@ extension CostUsageScanner {
                 costUSD: entryCost,
                 modelsUsed: modelNames,
                 modelBreakdowns: sortedBreakdown,
-                accountBreakdowns: (accountDays[day] ?? [:]).sorted { $0.key < $1.key }.map {
-                    .init(modelName: $0.key, costUSD: $0.value.cost, totalTokens: $0.value.tokens)
+                accountBreakdowns: (accountDays[day] ?? [:]).sorted { $0.key < $1.key }.map { account, models in
+                    .init(modelName: account, costUSD: models.values.reduce(0) { $0 + $1.cost },
+                          totalTokens: models.values.reduce(0) { $0 + $1.tokens },
+                          modelBreakdowns: models.sorted { $0.key < $1.key }.map {
+                              .init(modelName: $0.key, costUSD: $0.value.cost, totalTokens: $0.value.tokens)
+                          })
                 }))
 
             totalInput += dayInput

@@ -1,0 +1,24 @@
+{
+  "Personal": {
+    "cedar_ember": {
+      "at_limit": false,
+      "cooldown_until": null,
+      "eligible": false,
+      "exhausted": [],
+      "grants": [],
+      "ineligible_reason": "surface",
+      "weekly_resets_at": null
+    }
+  },
+  "work-1": {
+    "cedar_ember": {
+      "at_limit": false,
+      "cooldown_until": null,
+      "eligible": false,
+      "exhausted": [],
+      "grants": [],
+      "ineligible_reason": "surface",
+      "weekly_resets_at": null
+    }
+  }
+}

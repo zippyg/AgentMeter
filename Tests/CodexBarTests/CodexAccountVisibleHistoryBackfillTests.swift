@@ -1403,7 +1403,8 @@ extension CodexAccountScopedRefreshTests {
 
         #expect(store.snapshots[.codex] == nil)
         #expect(store.lastKnownResetSnapshots[.codex] == nil)
-        #expect(store.codexAccountSnapshots.isEmpty)
+        #expect(store.codexAccountSnapshots.map(\.account.selectionSource) == [.managedAccount(id: managedID)])
+        #expect(store.codexAccountSnapshots.first?.snapshot?.primary?.usedPercent == 7)
         #expect(!snapshotStore.storedSnapshots.contains {
             $0.account.selectionSource == .liveSystem
         })

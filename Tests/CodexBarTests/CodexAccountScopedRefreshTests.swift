@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import AgentMeter
 
-@Suite(.serialized)
+@Suite(.serialized, OpenAIDashboardCacheIsolation())
 @MainActor
 struct CodexAccountScopedRefreshTests {
     @Test
@@ -864,6 +864,9 @@ struct CodexAccountScopedRefreshTests {
     @Test
     func `refresh loads credits when codex email is discovered by usage in the same cycle`() async {
         let settings = self.makeSettingsStore(suite: "CodexAccountScopedRefreshTests-refresh-credits")
+        settings._test_codexReconciliationEnvironment = [
+            "CODEX_HOME": FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path,
+        ]
         settings.refreshFrequency = .manual
         settings.codexCookieSource = .off
         settings.statusChecksEnabled = false

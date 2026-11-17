@@ -100,4 +100,21 @@ if "${VERIFIER}" "${BAD_EXEC_APP}" >"${TEMP_DIR}/bad-exec.out" 2>"${TEMP_DIR}/ba
 fi
 grep -Fq "must not contain CodexBar executable" "${TEMP_DIR}/bad-exec.err"
 
+ADHOC_APP="${TEMP_DIR}/AdHoc.app"
+make_fixture "${ADHOC_APP}"
+cp /usr/bin/true "${TEMP_DIR}/signing-fixture"
+/usr/bin/codesign --force --timestamp=none --options runtime --sign - \
+  "${TEMP_DIR}/signing-fixture" >"${TEMP_DIR}/adhoc-sign.out" 2>"${TEMP_DIR}/adhoc-sign.err"
+cp "${TEMP_DIR}/signing-fixture" "${ADHOC_APP}/Contents/MacOS/AgentMeter"
+if "${VERIFIER}" "${ADHOC_APP}" >"${TEMP_DIR}/adhoc-runtime.out" 2>"${TEMP_DIR}/adhoc-runtime.err"; then
+  echo "ERROR: Verifier accepted ad-hoc hardened runtime, which prevents Sparkle loading." >&2
+  exit 1
+fi
+grep -Fq "Ad-hoc local app must not enable hardened runtime" "${TEMP_DIR}/adhoc-runtime.err"
+cp /usr/bin/true "${TEMP_DIR}/signing-fixture"
+/usr/bin/codesign --force --timestamp=none --sign - \
+  "${TEMP_DIR}/signing-fixture" >"${TEMP_DIR}/adhoc-resign.out" 2>"${TEMP_DIR}/adhoc-resign.err"
+cp "${TEMP_DIR}/signing-fixture" "${ADHOC_APP}/Contents/MacOS/AgentMeter"
+"${VERIFIER}" "${ADHOC_APP}" >/dev/null
+
 echo "AgentMeter local app verifier tests passed."

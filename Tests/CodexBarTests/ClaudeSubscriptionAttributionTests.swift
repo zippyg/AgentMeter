@@ -3,6 +3,57 @@ import Testing
 @testable import CodexBarCore
 
 struct ClaudeSubscriptionAttributionTests {
+    @Test func accountMarkersSeatDirectoriesAndSwitchHistoryReachDailyCounters() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 6, day: 9)
+        let uuid = "11111111-2222-3333-4444-555555555555"
+        let live = try env.writeClaudeProjectFile(relativePath: "p/live.jsonl", contents: env.jsonl([
+            self.assistant("before", at: "2026-06-09T10:00:00Z", input: 1),
+            self.assistant("switch1", at: "2026-06-09T11:00:00Z", input: 10),
+            self.assistant("switch2", at: "2026-06-09T12:00:00Z", input: 20),
+            ["type": "session-owner", "accountUuid": uuid],
+            self.assistant("marker", at: "2026-06-09T13:00:00Z", input: 30),
+        ]))
+        let seat = env.root.appendingPathComponent(".claude-swap-backup/sessions/3-invented/projects/p/seat.jsonl")
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try env.jsonl([self.assistant("seat", at: "2026-06-09T14:00:00Z", input: 40)])
+            .write(to: seat, atomically: true, encoding: .utf8)
+        let range = CostUsageScanner.CostUsageDayRange(since: day, until: day)
+        var cache = CostUsageCache()
+        for file in [live, seat] {
+            let parsed = CostUsageScanner.parseClaudeFile(fileURL: file, range: range, providerFilter: .all)
+            cache.files[file.path] = .init(mtimeUnixMs: 0, size: 0, days: parsed.days, claudeRows: parsed.rows)
+            for (date, models) in parsed.days {
+                for (model, packed) in models {
+                    let previous = cache.days[date, default: [:]][model] ?? Array(repeating: 0, count: packed.count)
+                    cache.days[date, default: [:]][model] = zip(previous, packed).map(+)
+                }
+            }
+        }
+        let timeline = CostUsageScanner.parseClaudeSwapTimeline("""
+        2026-06-09 10:30:00,000 - INFO - Switched from account 4 to 1
+        2026-06-09 11:30:00,000 - INFO - Switched from account 1 to 2
+        """, timeZone: TimeZone(secondsFromGMT: 0)!)
+        let report = CostUsageScanner.buildClaudeReportFromCache(cache: cache, range: range, timeline: timeline)
+        let accounts = Dictionary(uniqueKeysWithValues: (report.data.first?.accountBreakdowns ?? []).map {
+            ($0.modelName, $0.totalTokens ?? 0)
+        })
+        #expect(accounts == ["unknown": 2, "slot:1": 11, "slot:2": 21, "slot:3": 41,
+                             CostUsageScanner.claudeAccountKey(uuid: uuid): 31])
+        #expect(accounts.values.reduce(0, +) == report.summary?.totalTokens)
+        for account in report.data.first?.accountBreakdowns ?? [] {
+            let models = try #require(account.modelBreakdowns)
+            #expect(models.count == 1)
+            #expect(models.first?.modelName == "claude-fable-5")
+            #expect(models.first?.totalTokens == account.totalTokens)
+            #expect(models.first?.costUSD == account.costUSD)
+        }
+        let decoded = try JSONDecoder().decode(CostUsageDailyReport.ModelBreakdown.self, from: Data(
+            #"{"modelName":"slot:1","totalTokens":11,"modelBreakdowns":[{"modelName":"claude-fable-5","totalTokens":11}]}"#.utf8))
+        #expect(decoded.modelBreakdowns?.first?.totalTokens == 11)
+    }
+
     private func assistant(_ id: String, at time: String, input: Int) -> [String: Any] {
         [
             "message": [

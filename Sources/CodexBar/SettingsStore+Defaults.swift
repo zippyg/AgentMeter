@@ -104,6 +104,22 @@ extension SettingsStore {
         }
     }
 
+    var upcomingResetNotificationsEnabled: Bool {
+        get { self.defaultsState.upcomingResetNotificationsEnabled }
+        set {
+            self.defaultsState.upcomingResetNotificationsEnabled = newValue
+            self.userDefaults.set(newValue, forKey: "upcomingResetNotificationsEnabled")
+        }
+    }
+
+    var codexResetCreditExpiryCountdownEnabled: Bool {
+        get { self.defaultsState.codexResetCreditExpiryCountdownEnabled }
+        set {
+            self.defaultsState.codexResetCreditExpiryCountdownEnabled = newValue
+            self.userDefaults.set(newValue, forKey: "codexResetCreditExpiryCountdownEnabled")
+        }
+    }
+
     var sessionQuotaNotificationsEnabled: Bool {
         get { self.defaultsState.sessionQuotaNotificationsEnabled }
         set {

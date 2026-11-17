@@ -11,6 +11,7 @@ extension UsageMenuCardView.Model {
 
     var isOverviewErrorOnly: Bool {
         self.subtitleStyle == .error &&
+            (self.resetCreditsPresentation?.count ?? 0) == 0 &&
             self.metrics.isEmpty &&
             self.usageNotes.isEmpty &&
             self.openAIAPIUsage == nil &&
@@ -22,11 +23,19 @@ extension UsageMenuCardView.Model {
     }
 
     var hasUsageContent: Bool {
-        !self.metrics.isEmpty ||
+        (self.resetCreditsPresentation?.count ?? 0) > 0 ||
+            !self.metrics.isEmpty ||
             !self.usageNotes.isEmpty ||
             self.openAIAPIUsage != nil ||
             self.inlineUsageDashboard != nil ||
             self.placeholder != nil
+    }
+
+    private var resetCreditsPresentation: CodexResetCreditsContent.Presentation? {
+        self.resetCredits.map {
+            CodexResetCreditsContent.Presentation.make(
+                credits: $0, weeklyUsedPercent: self.resetCreditsWeeklyUsedPercent, now: .now)
+        }
     }
 
     var usesStackedDetailLayout: Bool {
@@ -39,6 +48,9 @@ extension UsageMenuCardView.Model {
     func hasCompatibleTrackedLayout(with candidate: Self) -> Bool {
         guard self.provider == candidate.provider,
               self.metrics.count == candidate.metrics.count,
+              self.resetCredits?.availableCount == candidate.resetCredits?.availableCount,
+              self.resetCredits?.credits?.count == candidate.resetCredits?.credits?.count,
+              (self.resetCreditsPresentation?.warning == nil) == (candidate.resetCreditsPresentation?.warning == nil),
               self.usageNotes == candidate.usageNotes,
               (self.openAIAPIUsage == nil) == (candidate.openAIAPIUsage == nil),
               Self.hasCompatibleCreditsLayout(
@@ -140,6 +152,8 @@ extension UsageMenuCardView.Model {
             false
         }
     }
+
+    static let staleProgressColor = Color(nsColor: .secondaryLabelColor)
 
     static func progressColor(for provider: UsageProvider) -> Color {
         if provider == .elevenlabs {

@@ -24,6 +24,9 @@ public struct ProviderFetchContext: Sendable {
     public let runtime: ProviderRuntime
     public let sourceMode: ProviderSourceMode
     public let includeCredits: Bool
+    /// System account pool reads must not refresh or save credentials.
+    public let codexReadOnly: Bool
+    public let codexAllowsCLIFallback: Bool
     public let includeOptionalUsage: Bool
     public let webTimeout: TimeInterval
     public let webDebugDumpHTML: Bool
@@ -65,11 +68,15 @@ public struct ProviderFetchContext: Sendable {
         providerManualTokenUpdater: ProviderManualTokenUpdater? = nil,
         costUsageHistoryDays: Int = 30,
         persistsCLISessions: Bool = false,
-        persistentCLISessionIdleWindow: TimeInterval? = nil)
+        persistentCLISessionIdleWindow: TimeInterval? = nil,
+        codexReadOnly: Bool = false,
+        codexAllowsCLIFallback: Bool = true)
     {
         self.runtime = runtime
         self.sourceMode = sourceMode
         self.includeCredits = includeCredits
+        self.codexReadOnly = codexReadOnly
+        self.codexAllowsCLIFallback = codexAllowsCLIFallback
         self.includeOptionalUsage = includeOptionalUsage
         self.webTimeout = webTimeout
         self.webDebugDumpHTML = webDebugDumpHTML

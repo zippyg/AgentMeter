@@ -47,6 +47,7 @@ struct UsageMenuCardView: View {
             let paceOnTop: Bool
             let warningMarkerPercents: [Double]
             let cardStyle: Bool
+            var retainedMeasurementOverride: Bool?
 
             init(
                 id: String,
@@ -61,7 +62,8 @@ struct UsageMenuCardView: View {
                 pacePercent: Double?,
                 paceOnTop: Bool,
                 warningMarkerPercents: [Double] = [],
-                cardStyle: Bool = false)
+                cardStyle: Bool = false,
+                retainedMeasurementOverride: Bool? = nil)
             {
                 self.id = id
                 self.title = title
@@ -76,6 +78,7 @@ struct UsageMenuCardView: View {
                 self.paceOnTop = paceOnTop
                 self.warningMarkerPercents = warningMarkerPercents
                 self.cardStyle = cardStyle
+                self.retainedMeasurementOverride = retainedMeasurementOverride
             }
 
             var percentLabel: String {
@@ -116,6 +119,8 @@ struct UsageMenuCardView: View {
         var usesLiveSubtitle: Bool = false
         let planText: String?
         let metrics: [Metric]
+        var resetCredits: CodexResetCredits?
+        var resetCreditsWeeklyUsedPercent: Double?
         let usageNotes: [String]
         let openAIAPIUsage: OpenAIAPIUsageSnapshot?
         let inlineUsageDashboard: InlineUsageDashboardModel?
@@ -126,6 +131,7 @@ struct UsageMenuCardView: View {
         let providerCost: ProviderCostSection?
         let tokenUsage: TokenUsageSection?
         let placeholder: String?
+        var showsRetainedMeasurement = false
         let progressColor: Color
     }
 
@@ -145,6 +151,10 @@ struct UsageMenuCardView: View {
         let liveModel = self.liveModel
         VStack(alignment: .leading, spacing: 6) {
             UsageMenuCardHeaderView(model: self.model)
+
+            if let resets = liveModel.resetCredits {
+                CodexResetCreditsContent(credits: resets, weeklyUsedPercent: liveModel.resetCreditsWeeklyUsedPercent)
+            }
 
             if self.hasDetails(model: liveModel) {
                 Divider()
@@ -173,7 +183,8 @@ struct UsageMenuCardView: View {
                                 MetricRow(
                                     metric: metric,
                                     title: Self.popupMetricTitle(provider: liveModel.provider, metric: metric),
-                                    progressColor: liveModel.progressColor)
+                                    progressColor: liveModel.progressColor,
+                                    isRetainedMeasurement: liveModel.showsRetainedMeasurement)
                             }
                             if let dashboard = liveModel.inlineUsageDashboard {
                                 InlineUsageDashboardContent(model: dashboard)
@@ -213,10 +224,10 @@ struct UsageMenuCardView: View {
                             Text(L("cost_header_estimated"))
                                 .font(.body)
                                 .fontWeight(.medium)
-                            Text(tokenUsage.sessionLine)
+                            Text(tokenUsage.sessionLine).monospacedDigit()
                                 .font(.footnote)
                                 .lineLimit(1)
-                            Text(tokenUsage.monthLine)
+                            Text(tokenUsage.monthLine).monospacedDigit()
                                 .font(.footnote)
                                 .lineLimit(1)
                             if let hint = tokenUsage.hintLine, !hint.isEmpty {
@@ -283,10 +294,10 @@ private struct ProviderCostContent: View {
                     accessibilityLabel: L("Extra usage spent"))
             }
             HStack(alignment: .firstTextBaseline) {
-                Text(self.section.spendLine).font(.footnote).lineLimit(1)
+                Text(self.section.spendLine).monospacedDigit().font(.footnote).lineLimit(1)
                 Spacer()
                 if let percentLine = self.section.percentLine {
-                    Text(percentLine)
+                    Text(percentLine).monospacedDigit()
                         .font(.footnote)
                         .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                         .lineLimit(1)
@@ -296,10 +307,16 @@ private struct ProviderCostContent: View {
     }
 }
 
-private struct MetricRow: View {
+struct MetricRow: View {
     let metric: UsageMenuCardView.Model.Metric
     let title: String
     let progressColor: Color
+    var isRetainedMeasurement = false
+
+    var barTint: Color {
+        (self.metric.retainedMeasurementOverride ?? self.isRetainedMeasurement)
+            ? UsageMenuCardView.Model.staleProgressColor : self.progressColor
+    }
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     var body: some View {
@@ -315,19 +332,19 @@ private struct MetricRow: View {
             } else {
                 UsageProgressBar(
                     percent: self.metric.percent,
-                    tint: self.progressColor,
+                    tint: self.barTint,
                     accessibilityLabel: self.metric.percentStyle.accessibilityLabel,
                     pacePercent: self.metric.pacePercent,
                     paceOnTop: self.metric.paceOnTop,
                     warningMarkerPercents: self.metric.warningMarkerPercents)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(self.metric.percentLabel)
+                        Text(self.metric.percentLabel).monospacedDigit()
                             .font(.footnote)
                             .lineLimit(1)
                         Spacer()
                         if let rightLabel = self.metric.resetText {
-                            Text(rightLabel)
+                            Text(rightLabel).monospacedDigit()
                                 .font(.footnote)
                                 .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                                 .lineLimit(1)
@@ -336,14 +353,14 @@ private struct MetricRow: View {
                     if self.metric.detailLeftText != nil || self.metric.detailRightText != nil {
                         HStack(alignment: .firstTextBaseline) {
                             if let detailLeft = self.metric.detailLeftText {
-                                Text(detailLeft)
+                                Text(detailLeft).monospacedDigit()
                                     .font(.footnote)
                                     .foregroundStyle(MenuHighlightStyle.primary(self.isHighlighted))
                                     .lineLimit(1)
                             }
                             Spacer()
                             if let detailRight = self.metric.detailRightText {
-                                Text(detailRight)
+                                Text(detailRight).monospacedDigit()
                                     .font(.footnote)
                                     .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                                     .lineLimit(1)
@@ -353,7 +370,7 @@ private struct MetricRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if let detail = self.metric.detailText {
-                    Text(detail)
+                    Text(detail).monospacedDigit()
                         .font(.footnote)
                         .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                         .lineLimit(1)
@@ -440,13 +457,17 @@ struct UsageMenuCardUsageSectionView: View {
                     MetricRow(
                         metric: metric,
                         title: UsageMenuCardView.popupMetricTitle(provider: liveModel.provider, metric: metric),
-                        progressColor: liveModel.progressColor)
+                        progressColor: liveModel.progressColor,
+                        isRetainedMeasurement: liveModel.showsRetainedMeasurement)
                 }
                 if let dashboard = liveModel.inlineUsageDashboard {
                     InlineUsageDashboardContent(model: dashboard)
                 } else if !liveModel.usageNotes.isEmpty {
                     UsageNotesContent(notes: liveModel.usageNotes)
                 }
+            }
+            if let resets = liveModel.resetCredits {
+                CodexResetCreditsContent(credits: resets, weeklyUsedPercent: liveModel.resetCreditsWeeklyUsedPercent)
             }
             if self.showBottomDivider {
                 Divider()
@@ -499,7 +520,7 @@ struct UsageMenuCardCreditsSectionView: View {
     }
 }
 
-private struct CreditsBarContent: View {
+struct CreditsBarContent: View {
     private static let fullScaleTokens: Double = 1000
 
     let creditsText: String
@@ -507,6 +528,7 @@ private struct CreditsBarContent: View {
     let hintText: String?
     let hintCopyText: String?
     let progressColor: Color
+    var compact = false
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     private var percentLeft: Double? {
@@ -531,16 +553,18 @@ private struct CreditsBarContent: View {
                     tint: self.progressColor,
                     accessibilityLabel: L("Credits remaining"))
                 HStack(alignment: .firstTextBaseline) {
-                    Text(self.creditsText)
+                    Text(self.creditsText).monospacedDigit()
                         .font(.caption)
                         .lineLimit(1)
                     Spacer()
-                    Text(self.scaleText)
-                        .font(.caption)
-                        .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
+                    if !self.compact {
+                        Text(self.scaleText).monospacedDigit()
+                            .font(.caption)
+                            .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
+                    }
                 }
             } else {
-                Text(self.creditsText)
+                Text(self.creditsText).monospacedDigit()
                     .font(.caption)
             }
             if let hintText, !hintText.isEmpty {
@@ -576,10 +600,10 @@ struct UsageMenuCardCostSectionView: View {
                             Text(L("cost_header_estimated"))
                                 .font(.body)
                                 .fontWeight(.medium)
-                            Text(tokenUsage.sessionLine)
+                            Text(tokenUsage.sessionLine).monospacedDigit()
                                 .font(.caption)
                                 .lineLimit(1)
-                            Text(tokenUsage.monthLine)
+                            Text(tokenUsage.monthLine).monospacedDigit()
                                 .font(.caption)
                                 .lineLimit(1)
                             if let hint = tokenUsage.hintLine, !hint.isEmpty {
@@ -661,6 +685,8 @@ extension UsageMenuCardView.Model {
         let account: AccountInfo
         let isRefreshing: Bool
         let lastError: String?
+        let quotaRefreshFailed: Bool
+        let dashboardRefreshFailed: Bool
         let usageBarsShowUsed: Bool
         let resetTimeDisplayStyle: ResetTimeDisplayStyle
         let tokenCostUsageEnabled: Bool
@@ -690,6 +716,8 @@ extension UsageMenuCardView.Model {
             account: AccountInfo,
             isRefreshing: Bool,
             lastError: String?,
+            quotaRefreshFailed: Bool = false,
+            dashboardRefreshFailed: Bool = false,
             usageBarsShowUsed: Bool,
             resetTimeDisplayStyle: ResetTimeDisplayStyle,
             tokenCostUsageEnabled: Bool,
@@ -718,6 +746,8 @@ extension UsageMenuCardView.Model {
             self.account = account
             self.isRefreshing = isRefreshing
             self.lastError = lastError
+            self.quotaRefreshFailed = quotaRefreshFailed
+            self.dashboardRefreshFailed = dashboardRefreshFailed
             self.usageBarsShowUsed = usageBarsShowUsed
             self.resetTimeDisplayStyle = resetTimeDisplayStyle
             self.tokenCostUsageEnabled = tokenCostUsageEnabled
@@ -789,6 +819,11 @@ extension UsageMenuCardView.Model {
             now: input.now)
         let redacted = Self.redactedText(input: input, subtitle: subtitle)
         let placeholder = Self.placeholder(input: input)
+        let resetCredits = input.provider == .codex ? input.snapshot?.codexResetCredits : nil
+        let resetPresentation = resetCredits.map {
+            CodexResetCreditsContent.Presentation.make(
+                credits: $0, weeklyUsedPercent: input.snapshot?.secondary?.usedPercent, now: input.now)
+        }
 
         return UsageMenuCardView.Model(
             provider: input.provider,
@@ -799,6 +834,8 @@ extension UsageMenuCardView.Model {
             usesLiveSubtitle: input.usesLiveSubtitle,
             planText: planText,
             metrics: metrics,
+            resetCredits: (resetPresentation?.count ?? 0) > 0 ? resetCredits : nil,
+            resetCreditsWeeklyUsedPercent: input.snapshot?.secondary?.usedPercent,
             usageNotes: usageNotes,
             openAIAPIUsage: openAIAPIUsage,
             inlineUsageDashboard: inlineUsageDashboard,
@@ -809,6 +846,7 @@ extension UsageMenuCardView.Model {
             providerCost: providerCost,
             tokenUsage: tokenUsage,
             placeholder: placeholder,
+            showsRetainedMeasurement: input.snapshot != nil && input.quotaRefreshFailed,
             progressColor: Self.progressColor(for: input.provider))
     }
 
@@ -1186,7 +1224,8 @@ extension UsageMenuCardView.Model {
                 detailLeftText: nil,
                 detailRightText: nil,
                 pacePercent: nil,
-                paceOnTop: true))
+                paceOnTop: true,
+                retainedMeasurementOverride: input.dashboardRefreshFailed))
         }
         return metrics
     }

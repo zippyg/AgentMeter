@@ -8,7 +8,11 @@ enum CostUsageCacheIO {
     private static func artifactVersion(for provider: UsageProvider) -> Int {
         switch provider {
         case .codex:
-            8
+            // 9: read compressed .jsonl.zst session logs, so every cached Codex window rescans once.
+            // 10: never cache a compressed log that failed to decompress.
+            // 11: subagent rollouts are their own sessions, so none can claim its parent's session.
+            // 12: resumed rollouts share a session ID but have distinct metadata timestamps.
+            12
         case .claude, .vertexai:
             // 7: persist the final account marker, including markers after the last usage row.
             7
@@ -137,6 +141,7 @@ struct CostUsageFileUsage: Codable {
     var hasDivergentTotals: Bool?
     var lastCodexTurnID: String?
     var sessionId: String?
+    var codexRolloutTimestamp: String?
     var forkedFromId: String?
     var codexCostNanos: [String: [String: Int64]]?
     var codexPrioritySurchargeNanos: [String: [String: Int64]]?

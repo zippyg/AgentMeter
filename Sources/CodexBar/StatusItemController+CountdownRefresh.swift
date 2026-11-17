@@ -8,21 +8,20 @@ extension StatusItemController {
         self.menuBarCountdownRefreshTask?.cancel()
         self.menuBarCountdownRefreshTask = nil
 
-        guard self.settings.menuBarShowsBrandIconWithPercent,
-              self.settings.menuBarDisplayMode == .resetTime,
-              self.settings.resetTimeDisplayStyle == .countdown
-        else {
-            return
-        }
+        let legacyCountdown = self.settings.menuBarShowsBrandIconWithPercent &&
+            self.settings.menuBarDisplayMode == .resetTime && self.settings.resetTimeDisplayStyle == .countdown
+        let hasPool = !self.usagePoolPresentation.model.results.isEmpty || self.usagePoolPresentation.codexAccounts.count > 1
+        guard legacyCountdown || hasPool else { return }
 
         let resetDates = self.menuBarCountdownProviders().compactMap { provider in
             self.menuBarMetricWindow(
                 for: provider,
                 snapshot: self.store.snapshot(for: provider))?.resetsAt
         }
-        guard let delay = Self.menuBarCountdownRefreshDelay(resetDates: resetDates, now: now) else {
-            return
-        }
+        let legacyDelay = legacyCountdown ? Self.menuBarCountdownRefreshDelay(resetDates: resetDates, now: now) : nil
+        let poolDelay = hasPool ? Self.usagePoolRefreshDelay(
+            accounts: self.usagePoolPresentation.codexAccounts, now: now) : nil
+        guard let delay = [legacyDelay, poolDelay].compactMap({ $0 }).min() else { return }
 
         self.menuBarCountdownRefreshTask = Task { @MainActor [weak self] in
             do {
@@ -32,8 +31,16 @@ extension StatusItemController {
             }
             guard let self, !Task.isCancelled else { return }
             self.menuBarCountdownRefreshTask = nil
+            self.refreshUsagePoolPresentation()
             self.updateIcons()
         }
+    }
+
+    nonisolated static func usagePoolRefreshDelay(accounts: [UsagePoolForecast.Account], now: Date) -> TimeInterval {
+        let nextReset = accounts.flatMap { account in
+            [account.session?.resetsAt, account.weekly?.resetsAt].compactMap { $0 }
+        }.filter { $0 > now }.map { $0.timeIntervalSince(now) + Self.menuBarCountdownRefreshEpsilon }.min()
+        return min(60, nextReset ?? 60)
     }
 
     nonisolated static func menuBarCountdownRefreshDelay(

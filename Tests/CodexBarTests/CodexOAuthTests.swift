@@ -3,7 +3,22 @@ import Testing
 @testable import CodexBarCore
 
 struct CodexOAuthTests {
-    private func makeContext(sourceMode: ProviderSourceMode = .auto) -> ProviderFetchContext {
+    @Test func fileOAuthRemainsAvailableWithKeychainDisabled() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(#"{"tokens":{"access_token":"invented-access","refresh_token":"invented-refresh"}}"#.utf8)
+            .write(to: root.appendingPathComponent("auth.json"))
+        #expect(KeychainAccessGate.isDisabled)
+        let credentials = try CodexOAuthCredentialsStore.load(env: ["CODEX_HOME": root.path])
+        #expect(credentials.accessToken == "invented-access")
+        let context = self.makeContext(environment: ["CODEX_HOME": root.path])
+        #expect(await CodexOAuthFetchStrategy().isAvailable(context))
+    }
+
+    private func makeContext(
+        sourceMode: ProviderSourceMode = .auto, environment: [String: String] = [:]) -> ProviderFetchContext
+    {
         let browserDetection = BrowserDetection(cacheTTL: 0)
         return ProviderFetchContext(
             runtime: .app,
@@ -12,7 +27,7 @@ struct CodexOAuthTests {
             webTimeout: 60,
             webDebugDumpHTML: false,
             verbose: false,
-            env: [:],
+            env: environment,
             settings: nil,
             fetcher: UsageFetcher(),
             claudeFetcher: ClaudeUsageFetcher(browserDetection: browserDetection),

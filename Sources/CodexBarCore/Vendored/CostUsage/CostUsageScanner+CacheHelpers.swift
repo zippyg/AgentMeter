@@ -271,6 +271,7 @@ extension CostUsageScanner {
         hasDivergentTotals: Bool? = nil,
         lastCodexTurnID: String? = nil,
         sessionId: String? = nil,
+        codexRolloutTimestamp: String? = nil,
         forkedFromId: String? = nil,
         codexCostNanos: [String: [String: Int64]]? = nil,
         codexPrioritySurchargeNanos: [String: [String: Int64]]? = nil,
@@ -294,6 +295,7 @@ extension CostUsageScanner {
             hasDivergentTotals: hasDivergentTotals,
             lastCodexTurnID: lastCodexTurnID,
             sessionId: sessionId,
+            codexRolloutTimestamp: codexRolloutTimestamp,
             forkedFromId: forkedFromId,
             codexCostNanos: codexCostNanos,
             codexPrioritySurchargeNanos: codexPrioritySurchargeNanos,
@@ -655,11 +657,12 @@ extension CostUsageScanner {
         fileURL: URL,
         metadata: CodexFileMetadata,
         sessionId: String?,
+        rolloutTimestamp: String?,
         context: CodexFileScanContext,
         state: inout CodexScanState)
     {
         if let sessionId {
-            state.seenSessionIds.insert(sessionId)
+            state.seenSessionIds.insert(.init(sessionId: sessionId, timestamp: rolloutTimestamp))
             context.resources.fileIndex.remember(fileURL: fileURL, sessionId: sessionId)
         }
         if let fileId = metadata.fileId {
@@ -690,6 +693,7 @@ extension CostUsageScanner {
             fileURL: input.fileURL,
             metadata: input.metadata,
             sessionId: cached.sessionId,
+            rolloutTimestamp: cached.codexRolloutTimestamp,
             context: context,
             state: &state)
         return true
@@ -722,6 +726,8 @@ extension CostUsageScanner {
             && startOffset <= input.metadata.size
             && initialCountedTotals != nil
             && cached.forkedFromId == nil
+            // Offsets count decompressed bytes, so a changed compressed log is read again in full.
+            && !CostUsageLogFile.isCompressed(input.fileURL)
         guard canIncremental else { return false }
 
         let delta = try Self.parseCodexFileCancellable(
@@ -738,7 +744,8 @@ extension CostUsageScanner {
             return false
         }
         let sessionId = delta.sessionId ?? cached.sessionId
-        if let sessionId, state.seenSessionIds.contains(sessionId) {
+        let rolloutTimestamp = delta.rolloutTimestamp ?? cached.codexRolloutTimestamp
+        if let sessionId, state.seenSessionIds.contains(.init(sessionId: sessionId, timestamp: rolloutTimestamp)) {
             Self.dropCachedCodexFile(path: input.metadata.path, cached: cached, cache: &cache)
             return true
         }
@@ -768,6 +775,7 @@ extension CostUsageScanner {
             hasDivergentTotals: delta.hasDivergentTotals,
             lastCodexTurnID: delta.lastCodexTurnID,
             sessionId: sessionId,
+            codexRolloutTimestamp: rolloutTimestamp,
             forkedFromId: delta.forkedFromId ?? migratedCached.forkedFromId,
             codexCostNanos: Self.codexMergedCostMap(
                 migratedCached.codexCostNanos,
@@ -795,6 +803,7 @@ extension CostUsageScanner {
             fileURL: input.fileURL,
             metadata: input.metadata,
             sessionId: sessionId,
+            rolloutTimestamp: rolloutTimestamp,
             context: context,
             state: &state)
         return true
@@ -821,7 +830,8 @@ extension CostUsageScanner {
             inheritedTotalsResolver: context.resources.inheritedResolver.inheritedTotals(for:atOrBefore:),
             checkCancellation: context.checkCancellation)
         let sessionId = parsed.sessionId ?? input.cached?.sessionId
-        if let sessionId, state.seenSessionIds.contains(sessionId) {
+        let rolloutTimestamp = parsed.rolloutTimestamp ?? input.cached?.codexRolloutTimestamp
+        if let sessionId, state.seenSessionIds.contains(.init(sessionId: sessionId, timestamp: rolloutTimestamp)) {
             cache.files.removeValue(forKey: input.metadata.path)
             return
         }
@@ -845,6 +855,7 @@ extension CostUsageScanner {
             hasDivergentTotals: parsed.hasDivergentTotals,
             lastCodexTurnID: parsed.lastCodexTurnID,
             sessionId: sessionId,
+            codexRolloutTimestamp: rolloutTimestamp,
             forkedFromId: parsed.forkedFromId,
             codexCostNanos: Self.mergeCostMaps(
                 context.dropDeferredCodexRows
@@ -894,6 +905,7 @@ extension CostUsageScanner {
             fileURL: input.fileURL,
             metadata: input.metadata,
             sessionId: sessionId,
+            rolloutTimestamp: rolloutTimestamp,
             context: context,
             state: &state)
     }
@@ -1026,6 +1038,7 @@ extension CostUsageScanner {
             let modelNames = models.keys.sorted()
 
             var dayInput = 0
+            var dayCached = 0
             var dayOutput = 0
             var breakdown: [CostUsageDailyReport.ModelBreakdown] = []
             var dayCost: Double = 0
@@ -1039,6 +1052,7 @@ extension CostUsageScanner {
                 let totalTokens = input + output
 
                 dayInput += input
+                dayCached += cached
                 dayOutput += output
 
                 let rows = rowsByDayModel[day]?[model]
@@ -1109,10 +1123,12 @@ extension CostUsageScanner {
 
             let dayTotal = dayInput + dayOutput
             let entryCost = dayCostSeen ? dayCost : nil
+            // Codex input includes its cached part; cacheReadTokens reports that part, never extra tokens.
             entries.append(CostUsageDailyReport.Entry(
                 date: day,
                 inputTokens: dayInput,
                 outputTokens: dayOutput,
+                cacheReadTokens: dayCached,
                 totalTokens: dayTotal,
                 costUSD: entryCost,
                 modelsUsed: modelNames,

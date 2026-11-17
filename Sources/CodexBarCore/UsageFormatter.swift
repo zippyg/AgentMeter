@@ -180,6 +180,7 @@ public enum UsageFormatter {
     public static func creditsString(from value: Double) -> String {
         let number = NumberFormatter()
         number.numberStyle = .decimal
+        number.usesGroupingSeparator = true
         number.maximumFractionDigits = 2
         // Use explicit locale for consistent formatting on all systems
         number.locale = Locale(identifier: "en_US_POSIX")

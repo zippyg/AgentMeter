@@ -41,6 +41,11 @@ public enum ClaudeOAuthFetchError: LocalizedError, Sendable {
     }
 }
 
+struct ClaudeGrantRequestError: Error {
+    let status: Int
+    let retryAfter: Date?
+}
+
 enum ClaudeOAuthUsageFetcher {
     private static let baseURL = "https://api.anthropic.com"
     private static let usagePath = "/api/oauth/usage"
@@ -49,22 +54,29 @@ enum ClaudeOAuthUsageFetcher {
 
     static func fetchUsage(
         accessToken: String,
+        includeLimitResets: Bool = false,
         detectClaudeVersion: Bool = true,
+        now: Date = Date(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         transport: any ProviderHTTPTransport = ProviderHTTPClient.shared) async throws -> OAuthUsageResponse {
-        if let blockedUntil = ClaudeOAuthUsageRateLimitGate.blockedUntil(accessToken: accessToken) {
+        if let blockedUntil = includeLimitResets
+            ? ClaudeOAuthUsageRateLimitGate.currentBlockedUntil(accessToken: accessToken, now: now)
+            : ClaudeOAuthUsageRateLimitGate.blockedUntil(accessToken: accessToken) {
             throw ClaudeOAuthFetchError.rateLimited(retryAfter: blockedUntil)
         }
 
-        guard let url = URL(string: baseURL + usagePath) else {
+        let path = usagePath + (includeLimitResets ? "?cedar_ember=1&skip_spend=1" : "")
+        guard let url = URL(string: baseURL + path) else {
             throw ClaudeOAuthFetchError.invalidResponse
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        if includeLimitResets { request.cachePolicy = .reloadIgnoringLocalCacheData }
         request.timeoutInterval = 30
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if includeLimitResets { request.setValue("cli", forHTTPHeaderField: "x-app") }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // OAuth usage endpoint currently requires the beta header.
         request.setValue(Self.betaHeader, forHTTPHeaderField: "anthropic-beta")
@@ -73,14 +85,23 @@ enum ClaudeOAuthUsageFetcher {
                 detectClaudeVersion: detectClaudeVersion && ProviderInteractionContext.current == .userInitiated,
                 versionDetector: { ProviderVersionDetector.claudeVersion(environment: environment) }),
             forHTTPHeaderField: "User-Agent")
+        if includeLimitResets {
+            // The grant surface is gated on the CLI identity as well as x-app, unlike plain usage.
+            // Keep this protocol identity aligned with the bundle used to verify the grant schema.
+            request.setValue("claude-cli/2.1.322 (external, cli)", forHTTPHeaderField: "User-Agent")
+        }
 
         do {
             let response = try await transport.response(for: request)
             let data = response.data
+            if includeLimitResets, [401, 403, 429].contains(response.statusCode) {
+                throw ClaudeGrantRequestError(status: response.statusCode,
+                                             retryAfter: Self.retryAfterDate(from: response.response, now: now))
+            }
             switch response.statusCode {
             case 200:
                 let usage = try Self.decodeUsageResponse(data)
-                ClaudeOAuthUsageRateLimitGate.recordSuccess(accessToken: accessToken)
+                if !includeLimitResets { ClaudeOAuthUsageRateLimitGate.recordSuccess(accessToken: accessToken) }
                 return usage
             case 401:
                 throw ClaudeOAuthFetchError.unauthorized
@@ -96,6 +117,8 @@ enum ClaudeOAuthUsageFetcher {
                 let body = String(data: data, encoding: .utf8)
                 throw ClaudeOAuthFetchError.serverError(response.statusCode, body)
             }
+        } catch let error as ClaudeGrantRequestError {
+            throw error
         } catch let error as ClaudeOAuthFetchError {
             throw error
         } catch {
@@ -169,6 +192,7 @@ struct OAuthUsageResponse: Decodable {
     let iguanaNecktie: OAuthUsageWindow?
     let limits: [OAuthUsageLimit]
     let extraUsage: OAuthExtraUsage?
+    let limitResets: ClaudeLimitResets?
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: DynamicCodingKey.self)
@@ -191,6 +215,7 @@ struct OAuthUsageResponse: Decodable {
         self.iguanaNecktie = Self.decodeWindow(in: container, keys: ["iguana_necktie"])
         self.limits = Self.decodeValue(in: container, keys: ["limits"]) ?? []
         self.extraUsage = Self.decodeValue(in: container, keys: ["extra_usage"])
+        self.limitResets = Self.decodeValue(in: container, keys: ["cedar_ember"])
     }
 
     private static func decodeWindow(

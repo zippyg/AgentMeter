@@ -952,7 +952,7 @@ struct CostUsageScannerBreakdownTests {
 
         let oldCacheDir = env.cacheRoot.appendingPathComponent("cost-usage", isDirectory: true)
         try FileManager.default.createDirectory(at: oldCacheDir, withIntermediateDirectories: true)
-        let oldCacheURL = oldCacheDir.appendingPathComponent("codex-v7.json", isDirectory: false)
+        let oldCacheURL = oldCacheDir.appendingPathComponent("codex-v9.json", isDirectory: false)
         let oldCache = #"{"version":1,"lastScanUnixMs":9999999999999,"files":{},"days":{"\#(dayKey)":"#
             + #"{"gpt-5":[999,0,0]}}}"#
         try oldCache.write(to: oldCacheURL, atomically: true, encoding: .utf8)
@@ -975,7 +975,7 @@ struct CostUsageScannerBreakdownTests {
         #expect(first.data[0].totalTokens == 132)
 
         let newCacheURL = CostUsageCacheIO.cacheFileURL(provider: .codex, cacheRoot: env.cacheRoot)
-        #expect(newCacheURL.lastPathComponent == "codex-v8.json")
+        #expect(newCacheURL.lastPathComponent == "codex-v12.json")
         #expect(FileManager.default.fileExists(atPath: newCacheURL.path))
         #expect(FileManager.default.fileExists(atPath: oldCacheURL.path))
 
@@ -3472,6 +3472,135 @@ struct CostUsageScannerBreakdownTests {
         }
         """
         return try JSONDecoder().decode(ModelsDevCatalog.self, from: Data(json.utf8))
+    }
+
+    /// Subagent rollouts carry the parent's session_id. They are their own sessions, and any parent
+    /// history they open with is subtracted, so both files count once.
+    @Test
+    func codexSubagentRolloutsCountOnceAlongsideTheirParent() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 3, day: 11)
+        func ts(_ seconds: Double) -> String { env.isoString(for: day.addingTimeInterval(seconds)) }
+        let model = "openai/gpt-5.2-codex"
+        let parent = "sess-parent-invented"
+
+        _ = try env.writeCodexSessionFile(day: day, filename: "rollout-a-\(parent).jsonl", contents: env.jsonl([
+            ["type": "session_meta", "payload": ["id": parent]],
+            self.codexTurnContext(timestamp: ts(0), model: model),
+            self.codexTokenCount(timestamp: ts(1), model: model,
+                                 total: (input: 100, cached: 40, output: 10), last: (input: 100, cached: 40, output: 10)),
+        ]))
+        // Starts fresh: its totals are its own.
+        _ = try env.writeCodexSessionFile(day: day, filename: "rollout-b-sub-fresh.jsonl", contents: env.jsonl([
+            ["type": "session_meta", "payload": [
+                "id": "sub-fresh-invented", "session_id": parent, "parent_thread_id": parent]],
+            self.codexTurnContext(timestamp: ts(2), model: model),
+            self.codexTokenCount(timestamp: ts(3), model: model,
+                                 total: (input: 30, cached: 10, output: 3), last: (input: 30, cached: 10, output: 3)),
+            self.codexTokenCount(timestamp: ts(4), model: model,
+                                 total: (input: 50, cached: 20, output: 5), last: (input: 20, cached: 10, output: 2)),
+        ]))
+        // Opens with the parent's 100/40/10, then makes one request of its own.
+        _ = try env.writeCodexSessionFile(day: day, filename: "rollout-c-sub-inherits.jsonl", contents: env.jsonl([
+            ["type": "session_meta", "payload": [
+                "id": "sub-inherits-invented", "session_id": parent, "parent_thread_id": parent]],
+            self.codexTurnContext(timestamp: ts(5), model: model),
+            self.codexTokenCount(timestamp: ts(6), model: model,
+                                 total: (input: 108, cached: 44, output: 11), last: (input: 8, cached: 4, output: 1)),
+            self.codexTokenCount(timestamp: ts(7), model: model,
+                                 total: (input: 120, cached: 50, output: 13), last: (input: 12, cached: 6, output: 2)),
+        ]))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot, claudeProjectsRoots: nil, cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+        options.forceRescan = true
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex, since: day, until: day, now: day, options: options)
+
+        // Parent 100 + 10, fresh subagent 50 + 5, inheriting subagent 20 + 3.
+        #expect(report.data.count == 1)
+        #expect(report.data.first?.inputTokens == 170)
+        #expect(report.data.first?.outputTokens == 18)
+        #expect(report.data.first?.cacheReadTokens == 40 + 20 + 10)
+    }
+
+    private func codexSubagentReport(
+        _ env: CostUsageTestEnvironment,
+        day: Date,
+        child: [(total: Usage, last: Usage)])
+        throws -> CostUsageDailyReport
+    {
+        func ts(_ seconds: Double) -> String { env.isoString(for: day.addingTimeInterval(seconds)) }
+        let model = "openai/gpt-5.2-codex"
+        let parent = "sess-parent-invented"
+        _ = try env.writeCodexSessionFile(day: day, filename: "rollout-a-\(parent).jsonl", contents: env.jsonl([
+            ["type": "session_meta", "payload": ["id": parent]],
+            self.codexTurnContext(timestamp: ts(0), model: model),
+            self.codexTokenCount(timestamp: ts(1), model: model,
+                                 total: (input: 100, cached: 40, output: 10), last: (input: 100, cached: 40, output: 10)),
+        ]))
+        var lines: [[String: Any]] = [
+            ["type": "session_meta", "payload": [
+                "id": "sub-invented", "session_id": parent, "parent_thread_id": parent]],
+            self.codexTurnContext(timestamp: ts(2), model: model),
+        ]
+        for (index, event) in child.enumerated() {
+            lines.append(self.codexTokenCount(
+                timestamp: ts(Double(3 + index)), model: model, total: event.total, last: event.last))
+        }
+        _ = try env.writeCodexSessionFile(day: day, filename: "rollout-b-sub.jsonl", contents: env.jsonl(lines))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot, claudeProjectsRoots: nil, cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+        options.forceRescan = true
+        return CostUsageScanner.loadDailyReport(provider: .codex, since: day, until: day, now: day, options: options)
+    }
+
+    /// A child whose first event replays the parent's exact total counts only what follows.
+    @Test
+    func codexSubagentThatReplaysItsParentCountsOnlyItsOwnUsage() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 3, day: 12)
+        let report = try self.codexSubagentReport(env, day: day, child: [
+            (total: (input: 100, cached: 40, output: 10), last: (input: 100, cached: 40, output: 10)),
+            (total: (input: 130, cached: 50, output: 13), last: (input: 30, cached: 10, output: 3)),
+        ])
+        // Parent 100/40/10 plus the child's own 30/10/3, not 230.
+        #expect(report.data.first?.inputTokens == 130)
+        #expect(report.data.first?.cacheReadTokens == 50)
+        #expect(report.data.first?.outputTokens == 13)
+    }
+
+    /// A fresh child keeps the divergent-total protection: a falling total still counts last usage.
+    @Test
+    func codexFreshSubagentWithFallingTotalCountsLastUsage() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 3, day: 13)
+        let report = try self.codexSubagentReport(env, day: day, child: [
+            (total: (input: 60, cached: 0, output: 0), last: (input: 60, cached: 0, output: 0)),
+            (total: (input: 40, cached: 0, output: 0), last: (input: 30, cached: 0, output: 0)),
+        ])
+        // Parent 100 plus the child's 60 + 30.
+        #expect(report.data.first?.inputTokens == 190)
+    }
+
+    /// A fresh child whose total jumps above its usage counts the usage, not the jump.
+    @Test
+    func codexFreshSubagentWithJumpingTotalCountsLastUsage() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+        let day = try env.makeLocalNoon(year: 2026, month: 3, day: 14)
+        let report = try self.codexSubagentReport(env, day: day, child: [
+            (total: (input: 60, cached: 0, output: 0), last: (input: 60, cached: 0, output: 0)),
+            (total: (input: 1000, cached: 0, output: 0), last: (input: 40, cached: 0, output: 0)),
+        ])
+        // Parent 100 plus the child's 60 + 40.
+        #expect(report.data.first?.inputTokens == 200)
     }
 }
 

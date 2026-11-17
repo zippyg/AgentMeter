@@ -1,0 +1,121 @@
+{
+  "capturedAt": 1793786400.0,
+  "usage": {
+    "schemaVersion": 2,
+    "accounts": {
+      "1": {
+        "fetchedAt": 1793785680.0,
+        "lastAttemptAt": 1793785680.0,
+        "lastError": null,
+        "lastGood": {
+          "seven_day": {
+            "pct": 58.0,
+            "resets_at": "2026-11-08T13:00:00+00:00"
+          },
+          "scoped": [
+            {
+              "name": "Fable",
+              "pct": 9.0,
+              "resets_at": "2026-11-08T13:00:00+00:00"
+            }
+          ]
+        }
+      },
+      "2": {
+        "fetchedAt": 1793786040.0,
+        "lastAttemptAt": 1793786040.0,
+        "lastError": null,
+        "lastGood": {
+          "five_hour": {
+            "pct": 31.0,
+            "resets_at": "2026-11-04T12:20:00+00:00"
+          },
+          "seven_day": {
+            "pct": 72.0,
+            "resets_at": "2026-11-06T16:00:00+00:00"
+          },
+          "scoped": [
+            {
+              "name": "Fable",
+              "pct": 15.0,
+              "resets_at": "2026-11-06T16:00:00+00:00"
+            }
+          ]
+        }
+      },
+      "3": {
+        "fetchedAt": 1793440800.0,
+        "lastAttemptAt": 1793786220.0,
+        "lastError": "http-403",
+        "lastGood": {
+          "five_hour": {
+            "pct": 0.0
+          },
+          "seven_day": {
+            "pct": 95.0,
+            "resets_at": "2026-11-03T05:00:00+00:00"
+          },
+          "scoped": [
+            {
+              "name": "Fable",
+              "pct": 4.0,
+              "resets_at": "2026-11-03T05:00:00+00:00"
+            }
+          ]
+        }
+      },
+      "4": {
+        "fetchedAt": 1793671200.0,
+        "lastAttemptAt": 1793786220.0,
+        "lastError": "http-429",
+        "lastGood": {
+          "five_hour": {
+            "pct": 0.0
+          },
+          "seven_day": {
+            "pct": 95.0,
+            "resets_at": "2026-11-07T11:00:00+00:00"
+          },
+          "scoped": [
+            {
+              "name": "Fable",
+              "pct": 11.0,
+              "resets_at": "2026-11-07T11:00:00+00:00"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "sequence": {
+    "activeAccountNumber": 2,
+    "accounts": {
+      "1": {
+        "email": "invented-identity-1",
+        "alias": "invented-login-1"
+      },
+      "2": {
+        "email": "invented-identity-2",
+        "alias": "invented-login-2"
+      },
+      "4": {
+        "email": "invented-identity-4",
+        "alias": "invented-login-4"
+      },
+      "3": {
+        "email": "invented-identity-3",
+        "alias": "invented-login-3"
+      }
+    }
+  },
+  "umbrella": {
+    "enabled": true,
+    "personal": "invented-identity-1"
+  },
+  "umbrellaState": {
+    "chosen_work": [
+      "invented-identity-2",
+      "invented-other-identity"
+    ]
+  }
+}

@@ -148,7 +148,11 @@ if [[ -z "${codesign_identity}" ]]; then
   echo "WARNING: No Apple Development signing identity found; using ad-hoc local signing." >&2
   codesign_identity="-"
 fi
-codesign_args=(--force --timestamp=none --options runtime --sign "${codesign_identity}")
+codesign_args=(--force --timestamp=none --sign "${codesign_identity}")
+# Ad-hoc code has no team identity, so hardened library validation rejects bundled Sparkle.
+if [[ "${codesign_identity}" != "-" ]]; then
+  codesign_args+=(--options runtime)
+fi
 
 sparkle_targets="$(codexbar_sparkle_signing_targets "${frameworks}/Sparkle.framework")"
 while IFS= read -r sparkle_target; do

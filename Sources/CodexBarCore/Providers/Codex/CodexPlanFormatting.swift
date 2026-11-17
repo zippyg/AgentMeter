@@ -3,10 +3,11 @@ import Foundation
 public enum CodexPlanFormatting {
     private static let exactDisplayNames: [String: String] = [
         "pro": "Pro 20x",
-        "prolite": "Pro 5x",
-        "pro_lite": "Pro 5x",
-        "pro-lite": "Pro 5x",
-        "pro lite": "Pro 5x",
+        "prolite": "Pro 10x",
+        "pro_lite": "Pro 10x",
+        "pro-lite": "Pro 10x",
+        "pro lite": "Pro 10x",
+        "pro 100": "Pro 10x",
     ]
 
     private static let uppercaseWords: Set<String> = [

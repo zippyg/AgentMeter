@@ -11,6 +11,8 @@ extension SettingsStore {
         _ = self.debugKeepCLISessionsAlive
         _ = self.statusChecksEnabled
         _ = self.agentMeterBridgeEnabled
+        _ = self.upcomingResetNotificationsEnabled
+        _ = self.codexResetCreditExpiryCountdownEnabled
         _ = self.sessionQuotaNotificationsEnabled
         _ = self.quotaWarningNotificationsEnabled
         _ = self.quotaWarningThresholds

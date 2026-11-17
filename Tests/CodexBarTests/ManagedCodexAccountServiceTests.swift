@@ -748,15 +748,12 @@ struct ManagedCodexAccountServiceTests {
     }
 
     @Test
-    func `remove drops account but leaves unsafe home untouched`() async throws {
+    func `remove drops overflow account but leaves external codex home untouched`() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let outsideRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
-            UUID().uuidString,
-            isDirectory: true)
+        let outsideRoot = root.appendingPathComponent(".codex-invented-overflow", isDirectory: true)
         try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: outsideRoot)
         }
 
         let accountID = try #require(UUID(uuidString: "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF"))
@@ -771,7 +768,7 @@ struct ManagedCodexAccountServiceTests {
             accounts: ManagedCodexAccountSet(version: 1, accounts: [account]))
         let service = ManagedCodexAccountService(
             store: store,
-            homeFactory: TestManagedCodexHomeFactory(root: root),
+            homeFactory: TestManagedCodexHomeFactory(root: root.appendingPathComponent("managed-codex-homes")),
             loginRunner: StubManagedCodexLoginRunner.success,
             identityReader: StubManagedCodexIdentityReader.emails([]),
             workspaceResolver: StubManagedCodexWorkspaceResolver())

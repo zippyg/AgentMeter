@@ -28,6 +28,11 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
     static var menuCardRenderingEnabled = !SettingsStore.isRunningTests
     private static let defaultMenuRefreshEnabled = !SettingsStore.isRunningTests
     private(set) static var menuRefreshEnabled = !SettingsStore.isRunningTests
+    var usagePoolPanel: UsagePoolPanel?
+    var usagePoolDismissingClick: Int?
+    var makeUsagePoolPanel: () -> UsagePoolPanel = { UsagePoolPanel() }
+    let usagePoolPresentation = UsagePoolPresentation()
+
     static let quotaWarningFlashDuration: TimeInterval = 60
     private nonisolated static let statusItemAccessibilityTitle = AgentMeterProductIdentity.displayName
     private nonisolated static let statusItemAccessibilityIdentifierPrefix =
@@ -216,7 +221,6 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
     }
 
     var creditsPurchaseWindow: OpenAICreditsPurchaseWindowController?
-    var preferencesWindowController: NSWindowController?
 
     var activeLoginProvider: UsageProvider? {
         didSet {
@@ -483,6 +487,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
             for: self.store.enabledProvidersForDisplay())
         self.scheduleStartupStatusItemVisibilityCheck()
         self.startMenuBarVisibilityWatchdog()
+        self.scheduleQAPopoverIfRequested()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(self.handleDebugReplayNotification(_:)),
@@ -556,6 +561,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
 
     func handleObservedStoreMenuChange() {
         self.observeStoreChanges()
+        self.refreshUsagePoolPresentation()
         // In-place spinner sync for the persistent Refresh rows. Safe during menu tracking:
         // it mutates existing row views only and never rebuilds the menu.
         self.updatePersistentRefreshRowsInProgress()
@@ -835,9 +841,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
         if self.mergedMenu == nil {
             self.mergedMenu = self.makeMenu()
         }
-        if self.statusItem.menu !== self.mergedMenu {
-            self.statusItem.menu = self.mergedMenu
-        }
+        self.attachUsagePool(to: self.statusItem)
         self.prepareAttachedClosedMenusIfNeeded()
     }
 
@@ -849,22 +853,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
             if shouldHaveItem {
                 let item = self.lazyStatusItem(for: provider)
 
-                if self.isEnabled(provider) {
-                    if self.providerMenus[provider] == nil {
-                        self.providerMenus[provider] = self.makeMenu(for: provider)
-                    }
-                    let menu = self.providerMenus[provider]
-                    if item.menu !== menu {
-                        item.menu = menu
-                    }
-                } else if fallback == provider {
-                    if self.fallbackMenu == nil {
-                        self.fallbackMenu = self.makeMenu(for: nil)
-                    }
-                    if item.menu !== self.fallbackMenu {
-                        item.menu = self.fallbackMenu
-                    }
-                }
+                self.attachUsagePool(to: item)
             } else if let item = self.statusItems[provider] {
                 item.menu = nil
             }

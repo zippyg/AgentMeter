@@ -110,10 +110,13 @@ struct CodexCLIUsageStrategy: ProviderFetchStrategy {
     let kind: ProviderFetchKind = .cli
 
     func isAvailable(_ context: ProviderFetchContext) async -> Bool {
-        Self.resolvedBinary(env: context.env) != nil
+        !context.codexReadOnly && context.codexAllowsCLIFallback && Self.resolvedBinary(env: context.env) != nil
     }
 
     func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
+        guard !context.codexReadOnly, context.codexAllowsCLIFallback else {
+            throw ProviderFetchError.noAvailableStrategy(.codex)
+        }
         let snapshot = try await context.fetcher.loadLatestCLIAccountSnapshot()
         guard let usage = snapshot.usage else {
             guard context.includeCredits, let credits = snapshot.credits else {
@@ -170,7 +173,7 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
     func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
         var credentials = try CodexOAuthCredentialsStore.load(env: context.env)
 
-        if credentials.needsRefresh, !credentials.refreshToken.isEmpty {
+        if !context.codexReadOnly, credentials.needsRefresh, !credentials.refreshToken.isEmpty {
             credentials = try await CodexTokenRefresher.refresh(credentials)
             try CodexOAuthCredentialsStore.save(credentials, env: context.env)
         }
@@ -188,7 +191,7 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
     }
 
     func shouldFallback(on error: Error, context: ProviderFetchContext) -> Bool {
-        guard context.sourceMode == .auto else { return false }
+        guard !context.codexReadOnly, context.codexAllowsCLIFallback, context.sourceMode == .auto else { return false }
 
         // Auto mode may launch the CLI as the next strategy. Keep that fallback
         // limited to OAuth states the CLI can actually repair, otherwise

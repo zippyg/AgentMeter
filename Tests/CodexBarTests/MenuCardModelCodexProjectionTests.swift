@@ -481,8 +481,9 @@ struct MenuCardModelCodexProjectionTests {
         #expect(model.metrics.contains { $0.title == "Code review" && $0.percent == 27 })
     }
 
-    @Test
-    func `shows code review metric when dashboard present`() throws {
+    @Test(arguments: [false, true], [false, true])
+    @MainActor
+    func `code review tint follows dashboard refresh independently`(quotaFailed: Bool, dashboardFailed: Bool) throws {
         let now = Date()
         let identity = ProviderIdentitySnapshot(
             providerID: .codex,
@@ -513,11 +514,11 @@ struct MenuCardModelCodexProjectionTests {
             surface: .liveCard,
             context: CodexConsumerProjection.Context(
                 snapshot: snapshot,
-                rawUsageError: nil,
+                rawUsageError: quotaFailed ? "Quota failed" : nil,
                 liveCredits: nil,
                 rawCreditsError: nil,
                 liveDashboard: dashboard,
-                rawDashboardError: nil,
+                rawDashboardError: dashboardFailed ? "Dashboard failed" : nil,
                 dashboardAttachmentAuthorized: true,
                 dashboardRequiresLogin: false,
                 now: now))
@@ -534,7 +535,9 @@ struct MenuCardModelCodexProjectionTests {
             tokenError: nil,
             account: AccountInfo(email: "codex@example.com", plan: nil),
             isRefreshing: false,
-            lastError: nil,
+            lastError: quotaFailed ? "Quota failed" : nil,
+            quotaRefreshFailed: quotaFailed,
+            dashboardRefreshFailed: dashboardFailed,
             usageBarsShowUsed: false,
             resetTimeDisplayStyle: .countdown,
             tokenCostUsageEnabled: false,
@@ -545,6 +548,11 @@ struct MenuCardModelCodexProjectionTests {
         #expect(model.metrics.contains { $0.title == "Code review" && $0.percent == 73 })
         let codeReviewMetric = model.metrics.first { $0.id == "code-review" }
         #expect(codeReviewMetric?.resetText?.contains("Resets") == true)
+        let metric = try #require(codeReviewMetric)
+        let row = MetricRow(
+            metric: metric, title: metric.title, progressColor: model.progressColor,
+            isRetainedMeasurement: model.showsRetainedMeasurement)
+        #expect(row.barTint == (dashboardFailed ? UsageMenuCardView.Model.staleProgressColor : model.progressColor))
     }
 
     @Test
